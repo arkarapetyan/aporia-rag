@@ -1,0 +1,110 @@
+[project]
+name = "aporia-rag"
+version = "0.1.0"
+description = "A self-correcting (Corrective RAG) question-answering agent over primary philosophical texts, running fully on local models."
+readme = "README.md"
+authors = [
+    { name = "Aren Karapetyan", email = "karapetyanaren.w@gmail.com" },
+]
+requires-python = ">=3.12"
+# Runtime dependencies are added by the component that first needs them,
+# so every change to uv.lock is traceable to one piece of the system.
+dependencies = [
+    "pydantic>=2.13",
+]
+
+[build-system]
+requires = ["uv_build>=0.8.17,<0.9.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "hypothesis>=6.168",
+    "mypy>=2.3",
+    "pre-commit>=4.6",
+    "pytest>=9.1",
+    "pytest-cov>=7.1",
+    "ruff>=0.16",
+]
+
+# --------------------------------------------------------------------------
+# Testing
+# --------------------------------------------------------------------------
+[tool.pytest.ini_options]
+minversion = "9.0"
+testpaths = ["tests"]
+addopts = [
+    "-ra",
+    "--strict-markers",
+    "--strict-config",
+    "--import-mode=importlib",
+    # Default run = fast, deterministic suite. Opt in with `-m integration` / `-m llm`.
+    "-m", "not integration and not llm",
+]
+xfail_strict = true
+filterwarnings = ["error"]
+markers = [
+    "integration: needs real local infrastructure (on-disk vector store, network). Opt-in.",
+    "llm: calls the real local Ollama model. Slow and non-deterministic. Opt-in.",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["aporia_rag"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+fail_under = 90
+exclude_also = [
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "^\\s*\\.\\.\\.$",
+]
+
+# --------------------------------------------------------------------------
+# Linting / formatting
+# --------------------------------------------------------------------------
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W",   # pycodestyle
+    "F",        # pyflakes
+    "I",        # isort
+    "N",        # pep8-naming
+    "UP",       # pyupgrade
+    "B",        # flake8-bugbear
+    "C4",       # flake8-comprehensions
+    "SIM",      # flake8-simplify
+    "PT",       # flake8-pytest-style
+    "PL",       # pylint
+    "TID",      # flake8-tidy-imports
+    "RUF",      # ruff-specific
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["PLR2004"]  # literal expected values are the point of a test
+
+[tool.ruff.lint.isort]
+known-first-party = ["aporia_rag"]
+
+[tool.ruff.lint.flake8-tidy-imports]
+ban-relative-imports = "all"
+
+# --------------------------------------------------------------------------
+# Type checking
+# --------------------------------------------------------------------------
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["src", "tests"]
+plugins = ["pydantic.mypy"]
+
+[tool.pydantic-mypy]
+init_forbid_extra = true
+init_typed = true
+warn_required_dynamic_aliases = true
