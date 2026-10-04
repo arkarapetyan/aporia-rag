@@ -12,10 +12,16 @@ Design:
   the original text and chunk text is a slice of it, never a re-joined
   string. Original whitespace is preserved and every chunk can be traced
   to its exact position for citations.
-* **Whole-unit overlap.** Consecutive chunks repeat as many whole trailing
-  units as fit in ``chunk_overlap`` characters, so an argument straddling
-  a boundary survives intact in at least one chunk. A unit is never
-  repeated partially; a half-sentence of overlap carries no meaning.
+* **Boundary-aligned overlap.** Each chunk after the first repeats the
+  longest tail of the previous chunk that fits in ``chunk_overlap`` and
+  starts at a whole-sentence boundary; failing that, at a clause boundary;
+  failing that (text with no sentence or clause punctuation), at a unit
+  boundary. This looks *inside* the last unit, so a paragraph-sized unit
+  still contributes its closing sentence(s) to the next chunk, which is the
+  context a reader needs when an argument runs across the boundary
+  ("Therefore...", "To this Glaucon replied..."). Overlap never starts
+  mid-word, and never at a fragment smaller than a clause when the text
+  has punctuation.
 
 Sizes are measured in characters, which is a proxy for embedding-model
 tokens (roughly 4 characters per token for English prose).
@@ -27,7 +33,9 @@ from typing import Final, NamedTuple
 
 from aporia_rag.domain.models import Chunk, Document
 
-_PARAGRAPH: Final = re.compile(r"\n\s*\n")
+# Every boundary pattern ends by consuming a whole whitespace run, so a match's
+# end is always the first character of the next piece (overlap relies on this).
+_PARAGRAPH: Final = re.compile(r"\n\s*\n\s*")
 # Sentence end, optionally followed by a closing quote or bracket. Python only
 # supports fixed-width look-behinds, hence the two alternatives.
 _SENTENCE: Final = re.compile(r"(?:(?<=[.!?])|(?<=[.!?][\"'\u201d\u2019)\]]))\s+")
@@ -79,7 +87,7 @@ class RecursiveChunker:
                 end_char=span.end,
                 metadata=document.metadata,
             )
-            for index, span in enumerate(self._pack(units))
+            for index, span in enumerate(self._pack(text, units))
         ]
 
     def _split_into_units(self, text: str, span: _Span, level: int) -> list[_Span]:
@@ -97,37 +105,51 @@ class RecursiveChunker:
             units.extend(self._split_into_units(text, piece, level + 1))
         return units
 
-    def _pack(self, units: list[_Span]) -> list[_Span]:
+    def _pack(self, text: str, units: list[_Span]) -> list[_Span]:
         """Greedily merge consecutive units into chunks of at most chunk_size.
 
-        `units` is never empty: `chunk` returns early for blank documents.
+        A chunk spans from `start` (a character position) to the end of its
+        last unit. The first chunk starts at the first unit; every later one
+        starts wherever `_overlap_start` decides, possibly inside the previous
+        chunk's last unit. `units` is never empty: `chunk` returns early for
+        blank documents.
         """
         chunks: list[_Span] = []
-        first = 0
+        start = units[0].start
+        next_unit = 0  # first unit not yet included in any chunk
         while True:
-            end = first + 1  # exclusive
-            while end < len(units) and units[end].end - units[first].start <= self.chunk_size:
+            # units[next_unit] always fits after `start`; _overlap_start guarantees it.
+            end = next_unit + 1  # exclusive
+            while end < len(units) and units[end].end - start <= self.chunk_size:
                 end += 1
-            chunks.append(_Span(units[first].start, units[end - 1].end))
+            chunk = _Span(start, units[end - 1].end)
+            chunks.append(chunk)
             if end == len(units):
                 return chunks
-            first = self._next_first_unit(units, first, end)
+            start = self._overlap_start(text, chunk, units[next_unit:end], units[end])
+            next_unit = end
 
-    def _next_first_unit(self, units: list[_Span], first: int, end: int) -> int:
-        """Pick where the next chunk starts.
+    def _overlap_start(
+        self, text: str, chunk: _Span, chunk_units: list[_Span], next_unit: _Span
+    ) -> int:
+        """Pick the character position where the chunk after `chunk` starts.
 
-        The earliest unit after `first` such that (a) the repeated tail of the
-        current chunk fits in chunk_overlap and (b) the next *new* unit,
-        `units[end]`, still fits in the chunk. Falling back to `end` (no
-        overlap) guarantees every chunk adds new text, so packing terminates.
+        Candidate positions come in tiers (whole sentences, then clauses, then
+        units). Within the first tier that has a valid candidate, the earliest
+        one wins, which is the longest overlap. A position is valid when
+        (a) the repeated text, `chunk.end - position`, fits in chunk_overlap
+        and (b) `next_unit` still fits after it, so every chunk adds new text
+        and packing always terminates. With no valid candidate the next chunk
+        starts at `next_unit` with no overlap.
         """
-        previous_end = units[end - 1].end
-        for candidate in range(first + 1, end):
-            start = units[candidate].start
-            repeated = previous_end - start
-            if repeated <= self.chunk_overlap and units[end].end - start <= self.chunk_size:
-                return candidate
-        return end
+        if self.chunk_overlap:
+            for tier in _overlap_candidates(text, chunk, chunk_units):
+                for position in tier:
+                    repeated = chunk.end - position
+                    fits_next = next_unit.end - position <= self.chunk_size
+                    if repeated <= self.chunk_overlap and fits_next:
+                        return position
+        return next_unit.start
 
 
 def _split_at(text: str, span: _Span, boundary: re.Pattern[str]) -> list[_Span]:
@@ -146,6 +168,34 @@ def _split_at(text: str, span: _Span, boundary: re.Pattern[str]) -> list[_Span]:
     if (last := _strip(text, _Span(cursor, span.end))) is not None:  # pragma: no branch
         pieces.append(last)
     return pieces
+
+
+def _overlap_candidates(
+    text: str, chunk: _Span, chunk_units: list[_Span]
+) -> tuple[list[int], list[int], list[int]]:
+    """Positions inside `chunk` where an overlap may start, in preference tiers.
+
+    1. Sentence starts: just after a paragraph break or a sentence end.
+    2. Clause starts: just after ``;`` or ``:``.
+    3. Unit starts: the only option for text without such punctuation.
+
+    Each tier is sorted ascending and every position is strictly inside the
+    chunk and on a non-whitespace character.
+    """
+
+    def starts_after(*boundaries: re.Pattern[str]) -> list[int]:
+        return sorted(
+            {
+                match.end()
+                for boundary in boundaries
+                for match in boundary.finditer(text, chunk.start, chunk.end)
+            }
+        )
+
+    sentence_starts = starts_after(_PARAGRAPH, _SENTENCE)
+    clause_starts = starts_after(_CLAUSE)
+    unit_starts = [unit.start for unit in chunk_units if unit.start > chunk.start]
+    return sentence_starts, clause_starts, unit_starts
 
 
 def _strip(text: str, span: _Span) -> _Span | None:

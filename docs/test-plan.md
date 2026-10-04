@@ -47,7 +47,9 @@ a document). Only *our* constraints are tested here, not pydantic itself.
 Splits a `Document` into `Chunk`s no longer than `chunk_size` characters, preferring the
 largest natural boundary that fits: **paragraph, then sentence, then clause (`;` `:`), then
 word, then raw characters** as a last resort. Chunks are exact spans of the original text.
-Consecutive chunks repeat up to `chunk_overlap` characters of whole trailing units.
+Each chunk after the first repeats the longest tail of the previous chunk that fits in
+`chunk_overlap` and starts at a whole-sentence boundary; failing that, a clause boundary; failing
+that (text with no sentence or clause punctuation), a unit boundary. Never part of a word.
 
 **Configuration**
 
@@ -87,6 +89,20 @@ Consecutive chunks repeat up to `chunk_overlap` characters of whole trailing uni
 | 2.17 | 55 / 10 | `"Delta is fourth."` | A unit larger than the budget is not repeated (never half a sentence) |
 | 2.18 | 47 / 31 | `"Gamma is third. Delta is fourth."` | Overlap shrinks when the next new unit would not otherwise fit, guaranteeing progress |
 
+**Overlap inside paragraph-sized units.** Added after measuring that with paragraph units,
+whole-unit overlap almost never applied (1.5% of boundaries at `chunk_size=1000`,
+`chunk_overlap=150`), because a paragraph is nearly always longer than the overlap budget. Each
+case is two paragraphs where the first paragraph fits in a chunk on its own; the old behaviour
+would start the second chunk at paragraph 2 with no overlap.
+
+| # | Paragraph 1 / paragraph 2 | `chunk_size` / `chunk_overlap` | Expected second chunk | Rule demonstrated |
+|---|---|---|---|---|
+| 2.28 | `"Alpha is first. Beta is second. Gamma is third."` / `"Delta is fourth. Epsilon is fifth."` | 55 / 25 | `"Gamma is third.\n\nDelta is fourth. Epsilon is fifth."` | Repeats the trailing whole sentence(s) of a paragraph unit |
+| 2.29 | `"Reason rules; spirit helps. Appetite obeys."` / `"Plato agrees."` | 50 / 30 | `"Appetite obeys.\n\nPlato agrees."` | Prefers a whole sentence (15 chars) over a longer clause-started tail (29 chars) |
+| 2.30 | `"Reason rules. The soul has three parts; appetite obeys."` / `"Plato agrees."` | 60 / 20 | `"appetite obeys.\n\nPlato agrees."` | Falls back to a clause when no whole sentence fits |
+| 2.31 | `"Reason rules. The soul obeys its rational part."` / `"Plato agrees."` | 50 / 20 | `"Plato agrees."`, no overlap | Never descends below a clause, even when trailing words would fit |
+| 2.32 | 10 words, no punctuation: `"one two … ten"` | 15 / 5 | chunks `["one two three", "three four five", "five six seven", "seven eight", "eight nine ten"]` | Text without punctuation overlaps on whole words (unit fallback) |
+
 **Provenance**
 
 | # | Test |
@@ -105,3 +121,5 @@ Consecutive chunks repeat up to `chunk_overlap` characters of whole trailing uni
 | 2.25 | Every non-whitespace character of the document lies inside at least one chunk |
 | 2.26 | Chunk starts and ends both strictly increase |
 | 2.27 | Characters shared by consecutive chunks never exceed `chunk_overlap` |
+| 2.33 | Regression guard for the overlap gap: on prose where every sentence fits in the overlap budget (and paragraphs leave room for it), **every** chunk boundary has overlap |
+| 2.34 | No chunk starts or ends with whitespace (overlap starts land on a real character) |

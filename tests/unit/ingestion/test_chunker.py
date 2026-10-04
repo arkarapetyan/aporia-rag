@@ -148,6 +148,55 @@ class TestOverlap:
         assert second.text == "Gamma is third. Delta is fourth."
 
 
+class TestOverlapInsideParagraphUnits:
+    """Each case is two paragraphs whose first paragraph fits in a chunk on its
+    own, so it is packed as a single unit. Whole-unit overlap would start the
+    second chunk at paragraph 2 with nothing repeated."""
+
+    def test_repeats_trailing_whole_sentences_of_a_paragraph(self) -> None:  # 2.28
+        text = (
+            "Alpha is first. Beta is second. Gamma is third.\n\nDelta is fourth. Epsilon is fifth."
+        )
+
+        first, second = _chunk(text, chunk_size=55, chunk_overlap=25)
+
+        assert first.text == "Alpha is first. Beta is second. Gamma is third."
+        assert second.text == "Gamma is third.\n\nDelta is fourth. Epsilon is fifth."
+
+    def test_prefers_a_whole_sentence_over_a_longer_clause_tail(self) -> None:  # 2.29
+        text = "Reason rules; spirit helps. Appetite obeys.\n\nPlato agrees."
+
+        _, second = _chunk(text, chunk_size=50, chunk_overlap=30)
+
+        assert second.text == "Appetite obeys.\n\nPlato agrees."
+
+    def test_falls_back_to_a_clause_when_no_sentence_fits(self) -> None:  # 2.30
+        text = "Reason rules. The soul has three parts; appetite obeys.\n\nPlato agrees."
+
+        _, second = _chunk(text, chunk_size=60, chunk_overlap=20)
+
+        assert second.text == "appetite obeys.\n\nPlato agrees."
+
+    def test_never_repeats_fragments_smaller_than_a_clause(self) -> None:  # 2.31
+        text = "Reason rules. The soul obeys its rational part.\n\nPlato agrees."
+
+        first, second = _chunk(text, chunk_size=50, chunk_overlap=20)
+
+        assert second.text == "Plato agrees."
+        assert second.start_char >= first.end_char
+
+    def test_text_without_punctuation_overlaps_on_whole_words(self) -> None:  # 2.32
+        text = "one two three four five six seven eight nine ten"
+
+        assert _texts(_chunk(text, chunk_size=15, chunk_overlap=5)) == [
+            "one two three",
+            "three four five",
+            "five six seven",
+            "seven eight",
+            "eight nine ten",
+        ]
+
+
 class TestProvenance:
     def test_chunks_carry_document_id_and_metadata(self) -> None:  # 2.19
         chunks = _chunk(FOUR_SENTENCES, chunk_size=20)
@@ -248,3 +297,37 @@ class TestInvariants:
         for previous, current in pairwise(chunks):
             shared = max(0, previous.end_char - current.start_char)
             assert shared <= chunker.chunk_overlap
+
+    @given(chunking_cases())
+    def test_chunks_never_start_or_end_with_whitespace(
+        self, case: tuple[Document, RecursiveChunker]
+    ) -> None:  # 2.34
+        document, chunker = case
+        for chunk in chunker.chunk(document):
+            assert not chunk.text[0].isspace()
+            assert not chunk.text[-1].isspace()
+
+
+# Prose where overlap is always achievable: every sentence (<= 28 chars) fits the
+# smallest budget (30), and paragraphs (<= 144 chars) are small enough that two of
+# them plus a repeated sentence always fit the smallest chunk_size (300).
+_SHORT_WORD = st.text(alphabet="abcdefghijklmnopqrstuvwxyz", min_size=1, max_size=6)
+_SHORT_SENTENCE = st.lists(_SHORT_WORD, min_size=1, max_size=4).map(lambda w: " ".join(w) + ".")
+_SHORT_PARAGRAPH = st.lists(_SHORT_SENTENCE, min_size=1, max_size=5).map(" ".join)
+
+
+@st.composite
+def overlap_friendly_cases(draw: st.DrawFn) -> tuple[Document, RecursiveChunker]:
+    text = "\n\n".join(draw(st.lists(_SHORT_PARAGRAPH, min_size=1, max_size=40)))
+    chunk_size = draw(st.integers(min_value=300, max_value=400))
+    chunk_overlap = draw(st.integers(min_value=30, max_value=100))
+    return _document(text), RecursiveChunker(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+
+
+class TestOverlapIsAppliedWhenPossible:
+    @given(overlap_friendly_cases())
+    def test_every_boundary_overlaps(self, case: tuple[Document, RecursiveChunker]) -> None:  # 2.33
+        document, chunker = case
+        chunks = chunker.chunk(document)
+        for previous, current in pairwise(chunks):
+            assert current.start_char < previous.end_char

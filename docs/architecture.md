@@ -40,8 +40,12 @@ always `document.text[start_char:end_char]` (enforced by a model validator and a
 test). Citations can point to the exact passage.
 
 **Recursive, structure-aware chunking.** Split at the coarsest boundary that fits: paragraph,
-sentence, clause, word, then characters. Overlap repeats whole units only (never half a
-sentence) and shrinks when needed to guarantee progress. Sizes are in characters, a proxy for
+sentence, clause, word, then characters. Overlap repeats the longest tail of the previous chunk
+that starts at a sentence boundary (falling back to a clause, then, for unpunctuated text, a
+unit boundary), looking inside paragraph-sized units rather than only repeating whole units. The
+first version only repeated whole units, which in practice meant almost no overlap: paragraphs are
+nearly always longer than the budget (1.5% of boundaries overlapped; 89% after the change).
+Overlap shrinks when needed to guarantee progress. Sizes are in characters, a proxy for
 tokens, which is good enough for embedding models with large context windows; this can be
 revisited if a small-context embedder is chosen.
 
