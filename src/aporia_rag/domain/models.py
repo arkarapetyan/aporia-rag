@@ -6,6 +6,7 @@ mutate it behind another stage's back. `extra="forbid"` turns a misspelled
 field into an immediate error instead of a silently dropped value.
 """
 
+from enum import StrEnum
 from typing import Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -24,6 +25,12 @@ class SourceMetadata(_ValueObject):
         min_length=1, description="Stable upstream identifier, e.g. 'gutenberg:1497'."
     )
     section: str | None = Field(default=None, description="e.g. 'Book I' or 'Part II, Ch. 3'.")
+    translator: str | None = None
+
+    @property
+    def citation(self) -> str:
+        """'Author, Title, Section' (or 'Author, Title'): how a passage is cited everywhere."""
+        return ", ".join(part for part in (self.author, self.title, self.section) if part)
 
 
 class Document(_ValueObject):
@@ -58,3 +65,59 @@ class Chunk(_ValueObject):
                 f"but text has {len(self.text)}"
             )
         return self
+
+
+class Passage(_ValueObject):
+    """A text to embed as a document, with an optional title.
+
+    The title is kept separate because providers use it differently: some
+    have a title slot (EmbeddingGemma, Gemini), others get it prepended to
+    the text. Either way it lets a chunk be embedded *with* its context
+    ("Kant, Groundwork, First Section") while the stored chunk stays the
+    exact source text.
+    """
+
+    text: str = Field(min_length=1)
+    title: str | None = Field(default=None, min_length=1)
+
+
+class EmbeddingSpace(_ValueObject):
+    """Everything that determines what an embedding vector means.
+
+    Two vectors can only be compared if they come from the same space: the
+    same provider and model, the same output size, and the same prompt
+    format (a query embedded with an instruction is a different vector from
+    the same query without one). Indexes record their space and refuse
+    vectors from any other.
+    """
+
+    provider: str = Field(min_length=1, description="e.g. 'ollama', 'google', 'voyage'.")
+    model: str = Field(min_length=1)
+    dimensions: int | None = Field(default=None, gt=0, description="None: the model's own size.")
+    prompt_format: str = Field(min_length=1, description="Name of the query/passage format.")
+
+    @property
+    def id(self) -> str:
+        """A readable identifier, e.g. 'ollama/qwen3-embedding:0.6b/native/qwen-instruct'."""
+        size = self.dimensions or "native"
+        return f"{self.provider}/{self.model}/{size}/{self.prompt_format}"
+
+
+class RetrievedChunk(_ValueObject):
+    """A chunk returned by a search, with its cosine similarity to the query (-1 to 1)."""
+
+    chunk: Chunk
+    score: float
+
+
+class ChatRole(StrEnum):
+    SYSTEM = "system"
+    USER = "user"
+    ASSISTANT = "assistant"
+
+
+class ChatMessage(_ValueObject):
+    """One message of a conversation with a chat model, in any provider's API."""
+
+    role: ChatRole
+    content: str

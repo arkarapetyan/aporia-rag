@@ -1,0 +1,162 @@
+# The works AporiaRAG ingests. Every edition was checked on Project Gutenberg
+# and its mirror on 2026-10-04, and every layout against the downloaded file
+# on 2026-10-10.
+#
+# Works are grouped by theme. The vocabulary shared across them is deliberate:
+# "duty" (Cicero, Kant, Mill), "happiness" (Aristotle, Seneca, Mill,
+# Schopenhauer), "will" and "idea" (Plato, Kant, Schopenhauer) each mean
+# different things to different authors. Telling those meanings apart is the
+# job of the relevance grader.
+#
+# Each [works.layout] says where the author's own text starts and ends in that
+# edition, and how its sections are headed. Patterns are regular expressions
+# matched against whole paragraphs (literal 'single-quoted' TOML strings, so
+# backslashes need no escaping).
+
+# --- Ethics and how to live ------------------------------------------------
+
+[[works]]
+id = "aristotle-nicomachean-ethics"
+author = "Aristotle"
+title = "The Nicomachean Ethics"
+translator = "D. P. Chase"
+gutenberg_id = 8438
+[works.layout]
+start = 'BOOK I'                       # after J. A. Smith's introduction
+end = 'NOTES'                          # translator's notes
+sections = ['BOOK [IVX]+', 'Chapter [IVX]+\.|APPENDIX.*']
+
+[[works]]
+id = "cicero-de-officiis"
+author = "Marcus Tullius Cicero"
+title = "De Officiis"
+translator = "Walter Miller"
+gutenberg_id = 47001
+[works.layout]
+start = 'LIBER PRIMUS / BOOK I'        # after Miller's introduction and bibliography
+end = 'INDEX'
+sections = ['LIBER \w+ / BOOK [IVX]+']
+section_labels = ["Book I", "Book II", "Book III"]
+english_only = true                    # bilingual Loeb edition: drop the Latin
+
+[[works]]
+id = "seneca-minor-dialogues"
+author = "Lucius Annaeus Seneca"
+title = "Minor Dialogues, Together with the Dialogue on Clemency"
+translator = "Aubrey Stewart"
+gutenberg_id = 64576
+[works.layout]
+start = 'THE FIRST BOOK OF THE DIALOGUES OF L\. ANNAEUS SENECA, ADDRESSED TO LUCILIUS\.'
+end = 'THE END\.'                      # before the index
+sections = ['THE \w+ BOOK OF THE DIALOGUES OF L\. ANNAEUS SENECA, ADDRESSED TO .*|ON CLEMENCY\.']
+section_labels = [
+    "Of Providence",
+    "On the Firmness of the Wise Man",
+    "Of Anger, Book I",
+    "Of Anger, Book II",
+    "Of Anger, Book III",
+    "Of Consolation, to Marcia",
+    "Of a Happy Life",
+    "Of Leisure",
+    "Of Peace of Mind",
+    "Of the Shortness of Life",
+    "Of Consolation, to Helvia",
+    "Of Consolation, to Polybius",
+    "On Clemency, Book I",
+    "On Clemency, Book II",
+]
+
+[[works]]
+id = "kant-metaphysic-of-morals"
+author = "Immanuel Kant"
+title = "Fundamental Principles of the Metaphysic of Morals"
+translator = "Thomas Kingsmill Abbott"
+gutenberg_id = 5682
+[works.layout]
+start = 'PREFACE'                      # Kant's own preface
+sections = ['PREFACE|(?:FIRST|SECOND|THIRD) SECTION']
+
+[[works]]
+id = "mill-utilitarianism"
+author = "John Stuart Mill"
+title = "Utilitarianism"
+gutenberg_id = 11224
+[works.layout]
+start = 'CHAPTER I\.'
+end = 'THE END\.'                      # before the closing footnotes and Spencer's note
+sections = ['CHAPTER [IVX]+\.']
+
+[[works]]
+id = "nietzsche-genealogy-of-morals"
+author = "Friedrich Nietzsche"
+title = "The Genealogy of Morals"
+translator = "Horace B. Samuel"
+gutenberg_id = 52319
+[works.layout]
+start = 'PREFACE\.'                    # after the editor's note
+end = 'PEOPLES AND COUNTRIES\. Translated by J\. M\. KENNEDY\.'  # a separate fragment
+sections = ['PREFACE\.|(?:FIRST|SECOND|THIRD) ESSAY\..*']
+
+# --- Knowledge and reality --------------------------------------------------
+
+[[works]]
+id = "descartes-discourse-on-method"
+author = "René Descartes"
+title = "Discourse on the Method"
+translator = "John Veitch"
+gutenberg_id = 59
+[works.layout]
+start = 'PREFATORY NOTE BY THE AUTHOR'
+sections = ['PREFATORY NOTE BY THE AUTHOR|PART [IVX]+']
+
+[[works]]
+id = "hume-enquiry"
+author = "David Hume"
+title = "An Enquiry Concerning Human Understanding"
+gutenberg_id = 9662
+[works.layout]
+start = 'SECTION I\.'
+end = 'INDEX'
+sections = ['SECTION [IVX]+\.', 'PART [IVX]+\.']
+
+[[works]]
+id = "schopenhauer-world-as-will-vol1"
+author = "Arthur Schopenhauer"
+title = "The World as Will and Idea, Vol. 1"
+translator = "R. B. Haldane and J. Kemp"
+gutenberg_id = 38427
+[works.layout]
+start = 'PREFACE TO THE FIRST EDITION\.'  # after the translators' preface
+end = 'FOOTNOTES'
+sections = ['PREFACE TO THE (?:FIRST|SECOND) EDITION\.|(?:FIRST|SECOND|THIRD|FOURTH) BOOK\..*']
+
+# --- Justice and the state --------------------------------------------------
+
+[[works]]
+id = "plato-republic"
+author = "Plato"
+title = "The Republic"
+translator = "Benjamin Jowett"
+gutenberg_id = 1497
+[works.layout]
+start = 'BOOK I\.'                     # after Jowett's introduction (46% of the file)
+sections = ['BOOK [IVX]+\.']
+
+[[works]]
+id = "hobbes-leviathan"
+author = "Thomas Hobbes"
+title = "Leviathan"
+gutenberg_id = 3207
+[works.layout]
+start = 'THE INTRODUCTION'             # after the dedication and the contents list
+# '\.?' because one heading in this edition lacks its full stop: 'CHAPTER XL OF THE RIGHTS...'
+sections = ['THE INTRODUCTION|PART [IVX]+\. .*|A REVIEW, AND CONCLUSION', 'CHAPTER [IVXL]+\.? .*']
+
+[[works]]
+id = "mill-on-liberty"
+author = "John Stuart Mill"
+title = "On Liberty"
+gutenberg_id = 34901
+[works.layout]
+start = 'CHAPTER I\.'                  # after W. L. Courtney's introduction
+sections = ['CHAPTER [IVX]+\.']

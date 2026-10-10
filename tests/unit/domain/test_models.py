@@ -7,7 +7,15 @@ consistency, immutability), not pydantic's general behaviour.
 import pytest
 from pydantic import ValidationError
 
-from aporia_rag.domain.models import Chunk, Document, SourceMetadata
+from aporia_rag.domain.models import (
+    ChatMessage,
+    ChatRole,
+    Chunk,
+    Document,
+    EmbeddingSpace,
+    Passage,
+    SourceMetadata,
+)
 
 METADATA = SourceMetadata(author="Plato", title="The Republic", source_id="gutenberg:1497")
 
@@ -28,6 +36,16 @@ def _chunk(**overrides: object) -> Chunk:
 class TestSourceMetadata:
     def test_section_is_optional(self) -> None:  # 1.1
         assert METADATA.section is None
+
+    def test_translator_is_optional(self) -> None:  # 1.10
+        assert METADATA.translator is None
+        translated = METADATA.model_copy(update={"translator": "Benjamin Jowett"})
+        assert translated.translator == "Benjamin Jowett"
+
+    def test_citation_names_author_title_and_section(self) -> None:  # 1.16
+        assert METADATA.citation == "Plato, The Republic"
+        with_section = METADATA.model_copy(update={"section": "Book I"})
+        assert with_section.citation == "Plato, The Republic, Book I"
 
     def test_rejects_unknown_fields(self) -> None:  # 1.2
         with pytest.raises(ValidationError, match="athor"):
@@ -74,3 +92,41 @@ class TestChunk:
     def test_rejects_negative_positions(self, overrides: dict[str, int]) -> None:  # 1.9
         with pytest.raises(ValidationError):
             _chunk(**overrides)
+
+
+class TestPassage:
+    def test_title_is_optional(self) -> None:  # 1.11
+        assert Passage(text="Know thyself.").title is None
+
+    @pytest.mark.parametrize(
+        "fields", [{"text": ""}, {"text": "Know thyself.", "title": ""}], ids=["text", "title"]
+    )
+    def test_rejects_empty_text_or_title(self, fields: dict[str, str]) -> None:  # 1.11
+        with pytest.raises(ValidationError):
+            Passage.model_validate(fields)
+
+
+class TestEmbeddingSpace:
+    def test_id_names_every_part_of_the_space(self) -> None:  # 1.12
+        space = EmbeddingSpace(
+            provider="ollama", model="qwen3-embedding:0.6b", dimensions=512, prompt_format="qwen"
+        )
+
+        assert space.id == "ollama/qwen3-embedding:0.6b/512/qwen"
+
+    def test_id_says_native_when_the_size_is_the_models_own(self) -> None:  # 1.12
+        space = EmbeddingSpace(provider="p", model="m", dimensions=None, prompt_format="f")
+
+        assert space.id == "p/m/native/f"
+
+    def test_rejects_non_positive_dimensions(self) -> None:  # 1.12
+        with pytest.raises(ValidationError, match="dimensions"):
+            EmbeddingSpace(provider="p", model="m", dimensions=0, prompt_format="f")
+
+
+def test_chat_message_roles_are_restricted() -> None:  # 1.13
+    message = ChatMessage.model_validate({"role": "user", "content": "What is justice?"})
+
+    assert message == ChatMessage(role=ChatRole.USER, content="What is justice?")
+    with pytest.raises(ValidationError, match="role"):
+        ChatMessage.model_validate({"role": "narrator", "content": "Once upon a time."})

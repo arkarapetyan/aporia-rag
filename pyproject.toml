@@ -10,8 +10,15 @@ requires-python = ">=3.12"
 # Runtime dependencies are added by the component that first needs them,
 # so every change to uv.lock is traceable to one piece of the system.
 dependencies = [
+    "chromadb>=1.5",
+    "httpx>=0.28",
+    "ollama>=0.6",
     "pydantic>=2.13",
+    "pydantic-settings>=2.15",
 ]
+
+[project.scripts]
+aporia-rag = "aporia_rag.cli:main"
 
 [build-system]
 requires = ["uv_build>=0.8.17,<0.9.0"]
@@ -20,6 +27,7 @@ build-backend = "uv_build"
 [dependency-groups]
 dev = [
     "hypothesis>=6.168",
+    "import-linter>=2.3",
     "mypy>=2.3",
     "pre-commit>=4.6",
     "pytest>=9.1",
@@ -33,6 +41,8 @@ dev = [
 [tool.pytest.ini_options]
 minversion = "9.0"
 testpaths = ["tests"]
+# Makes the shared test doubles importable as `support.fakes` from any test.
+pythonpath = ["tests"]
 addopts = [
     "-ra",
     "--strict-markers",
@@ -44,7 +54,7 @@ addopts = [
 xfail_strict = true
 filterwarnings = ["error"]
 markers = [
-    "integration: needs real local infrastructure (on-disk vector store, network). Opt-in.",
+    "integration: needs the downloaded corpus or the network. Opt-in.",
     "llm: calls the real local Ollama model. Slow and non-deterministic. Opt-in.",
 ]
 
@@ -61,6 +71,39 @@ exclude_also = [
     "raise NotImplementedError",
     "^\\s*\\.\\.\\.$",
 ]
+
+# --------------------------------------------------------------------------
+# Architecture rules (checked by tests/unit/test_architecture.py)
+# --------------------------------------------------------------------------
+[tool.importlinter]
+root_package = "aporia_rag"
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+id = "layers"
+name = "Dependencies point inward: cli > bootstrap > adapters and use cases > domain"
+type = "layers"
+layers = [
+    "aporia_rag.cli",
+    "aporia_rag.bootstrap",
+    # `|`: independent siblings, which must not import each other either.
+    "aporia_rag.adapters | aporia_rag.config | aporia_rag.graph | aporia_rag.indexing | aporia_rag.ingestion | aporia_rag.retrieval",
+    "aporia_rag.domain",
+]
+
+[[tool.importlinter.contracts]]
+id = "provider-libraries"
+name = "Provider libraries are used only by adapters"
+type = "forbidden"
+source_modules = [
+    "aporia_rag.config",
+    "aporia_rag.domain",
+    "aporia_rag.graph",
+    "aporia_rag.indexing",
+    "aporia_rag.ingestion",
+    "aporia_rag.retrieval",
+]
+forbidden_modules = ["chromadb", "ollama"]
 
 # --------------------------------------------------------------------------
 # Linting / formatting
@@ -85,6 +128,10 @@ select = [
     "TID",      # flake8-tidy-imports
     "RUF",      # ruff-specific
 ]
+ignore = [
+    "SIM905",   # "a b c".split() reads better than a list literal for long word lists
+    "PLR0913",  # many parameters are fine when they are keyword-only (after `*`), as here
+]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["PLR2004"]  # literal expected values are the point of a test
@@ -102,6 +149,10 @@ ban-relative-imports = "all"
 python_version = "3.12"
 strict = true
 files = ["src", "tests"]
+# Name modules by their path from these roots (`support.fakes`, `unit.adapters.conftest`),
+# so test files with the same name in different folders do not clash.
+mypy_path = ["src", "tests"]
+explicit_package_bases = true
 plugins = ["pydantic.mypy"]
 
 [tool.pydantic-mypy]

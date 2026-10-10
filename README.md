@@ -38,6 +38,26 @@ flowchart LR
 Every loop has a hard retry cap, so the agent always terminates, with an honest "I don't know"
 if it has to.
 
+## Corpus
+
+Twelve public-domain works from [Project Gutenberg](https://www.gutenberg.org), chosen so that the
+same words mean different things to different authors: *duty* for Cicero, Kant and Mill;
+*happiness* for Aristotle, Seneca, Mill and Schopenhauer; *will* and *idea* for Plato, Kant and
+Schopenhauer. Telling those meanings apart is exactly what the relevance grader has to do.
+
+| Theme | Works |
+|---|---|
+| Ethics and how to live | Aristotle, *Nicomachean Ethics* (tr. Chase) · Cicero, *De Officiis* (tr. Miller) · Seneca, *Minor Dialogues* (tr. Stewart) · Kant, *Fundamental Principles of the Metaphysic of Morals* (tr. Abbott) · Mill, *Utilitarianism* · Nietzsche, *The Genealogy of Morals* (tr. Samuel) |
+| Knowledge and reality | Descartes, *Discourse on the Method* (tr. Veitch) · Hume, *An Enquiry Concerning Human Understanding* · Schopenhauer, *The World as Will and Idea*, Vol. 1 (tr. Haldane & Kemp) |
+| Justice and the state | Plato, *Republic* (tr. Jowett) · Hobbes, *Leviathan* · Mill, *On Liberty* |
+
+Only the authors' own words are indexed. Each edition's layout (in
+[`corpus.toml`](src/aporia_rag/ingestion/corpus.toml)) cuts away translators' introductions, notes,
+indexes and appended works. Jowett's introduction alone is 46% of the *Republic* file. Footnotes
+and apparatus are removed, and the Latin half of the bilingual Loeb *De Officiis* is dropped. The
+result is 245 sections, each cited by author, work, translator and section ("Book IV",
+"Section VII, Part II", "Part II. Of Common-wealth, Chapter XVII...").
+
 ## Tech stack
 
 All free, all local by default.
@@ -45,6 +65,7 @@ All free, all local by default.
 | Concern | Choice |
 |---|---|
 | LLM | [Ollama](https://ollama.com) running `qwen3:14b` |
+| Embeddings | [`qwen3-embedding:0.6b`](https://ollama.com/library/qwen3-embedding) via Ollama |
 | Orchestration | [LangGraph](https://langchain-ai.github.io/langgraph/) state machine |
 | Vector store | [Chroma](https://www.trychroma.com) (embedded, on disk) |
 | Web fallback | [`ddgs`](https://pypi.org/project/ddgs/) (no API key) |
@@ -53,14 +74,41 @@ All free, all local by default.
 
 ## Getting started
 
-Prerequisites: [uv](https://docs.astral.sh/uv/) and, for the parts that call a model,
-[Ollama](https://ollama.com) with `ollama pull qwen3:14b`.
+Prerequisites: [uv](https://docs.astral.sh/uv/) and [Ollama](https://ollama.com).
 
 ```bash
-make install   # create .venv and install from the lockfile
-make check     # lint, strict type-check, tests with coverage: what CI runs
-make help      # list all targets
+ollama pull qwen3-embedding:0.6b  # the embedding model (639 MB)
+ollama pull qwen3:14b             # the chat model (from the generation step on)
+
+make install                      # create .venv and install from the lockfile
+uv run aporia-rag fetch           # download the 12 works into data/raw (cached afterwards)
+uv run aporia-rag index           # embed them into the vector index in data/index
+uv run aporia-rag search "Is anything good without qualification?" -k 5
+uv run aporia-rag search "What is justice?" --author plato
+make check                        # lint, strict type-check, tests with coverage: what CI runs
+make help                         # list all targets
 ```
+
+`index` only embeds what is new or changed, so running it again is cheap; `index --rebuild`
+starts over. `search` shows what retrieval alone finds, with similarity scores and citations: the
+baseline the corrective agent has to beat.
+
+## Configuration
+
+Every setting has a local default; nothing needs configuring to start. Override any of them with
+an environment variable or a `.env` file in the project directory (see
+[`.env.example`](.env.example) for the full list):
+
+```bash
+APORIA_EMBEDDING__MODEL=embeddinggemma:300m   # section, two underscores, field
+APORIA_OLLAMA__HOST=http://gpu-box:11434
+```
+
+Models and stores are chosen by name (`APORIA_EMBEDDING__PROVIDER`, `APORIA_STORAGE__PROVIDER`).
+Only Ollama and Chroma exist today, but the code depends on interfaces, not on them: adding Google,
+Voyage AI or Anthropic means one adapter class and one registration (see
+[architecture](docs/architecture.md#provider-independence-ports-adapters-registries)). Each
+embedding model gets its own index, so switching models never mixes incompatible vectors.
 
 ## Development
 
@@ -72,7 +120,7 @@ write the component, then run the full quality gate. Test lists live in
 | Command | Runs |
 |---|---|
 | `make test` | Fast suite: unit + property-based tests. No network, no LLM. |
-| `make test-integration` | Tests against real local infrastructure. |
+| `make test-integration` | Contract tests on the real downloaded corpus, plus a live mirror download. |
 | `make test-llm` | Tests against the real local model. Slow, run by hand. |
 
 ## Roadmap
@@ -80,8 +128,10 @@ write the component, then run the full quality gate. Test lists live in
 - [x] Project scaffold, tooling, CI
 - [x] Domain models
 - [x] Structure-aware recursive chunker
-- [ ] Gutenberg loader: fetch, strip boilerplate, split works into sections
-- [ ] Embeddings + Chroma vector store
+- [x] Corpus manifest, Gutenberg mirror client with cache, boilerplate cleaning, `aporia-rag fetch`
+- [x] Per-edition structuring (authors' text only, sections with citation labels) and lazy document loader
+- [x] Embeddings + Chroma vector store, incremental indexing, `aporia-rag index` and `search`
+- [ ] Embedding model bake-off on a small gold question set
 - [ ] Baseline RAG (retrieve then generate), end to end
 - [ ] Relevance grader + query rewriter
 - [ ] Web search fallback
