@@ -73,15 +73,6 @@ def test_no_passages_means_no_provider_call() -> None:  # 10.10
     assert embedder.calls == []
 
 
-@pytest.mark.parametrize("question", ["", "   \n"])
-def test_blank_query_is_rejected(question: str) -> None:  # 10.10
-    embedder = RecordingEmbedder()
-
-    with pytest.raises(ValueError, match="blank"):
-        embedder.embed_query(question)
-    assert embedder.calls == []
-
-
 def test_wrong_number_of_vectors_is_a_provider_error() -> None:  # 10.11
     embedder = RecordingEmbedder(reply=lambda passages: _three_numbers(passages)[:-1])
 

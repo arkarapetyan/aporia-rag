@@ -78,6 +78,11 @@ class TestBoundaryPreference:
             "Glaucon objects.",
         ]
 
+    def test_spaces_before_a_paragraph_break_belong_to_the_break(self) -> None:  # 2.35
+        text = "Socrates asks.  \n\nGlaucon objects."
+
+        assert _texts(_chunk(text, chunk_size=20)) == ["Socrates asks.", "Glaucon objects."]
+
     def test_falls_back_to_sentences_inside_a_long_paragraph(self) -> None:  # 2.9
         assert _texts(_chunk(FOUR_SENTENCES, chunk_size=55)) == [
             "Alpha is first. Beta is second. Gamma is third.",

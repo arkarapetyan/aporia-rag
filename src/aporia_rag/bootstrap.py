@@ -85,13 +85,8 @@ def build_embedder(
     return registry.get(settings.embedding.provider)(settings, transport)
 
 
-def build_vector_store(
-    settings: Settings,
-    space: EmbeddingSpace,
-    *,
-    registry: ProviderRegistry[VectorStoreFactory] = VECTOR_STORES,
-) -> VectorStore:
-    return registry.get(settings.storage.provider)(settings, space)
+def build_vector_store(settings: Settings, space: EmbeddingSpace) -> VectorStore:
+    return VECTOR_STORES.get(settings.storage.provider)(settings, space)
 
 
 def build_chunker(settings: Settings) -> Chunker:

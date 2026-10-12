@@ -6,7 +6,6 @@ configured, and they make no assumption about which one it is: no vector
 size or score is hard-coded. Run them after changing the embedding model.
 """
 
-import math
 from collections.abc import Iterator
 
 import pytest
@@ -14,11 +13,11 @@ import pytest
 from aporia_rag.bootstrap import Container
 from aporia_rag.config import load_settings
 from aporia_rag.domain.models import Passage
-from aporia_rag.domain.ports import Embedder, IndexRecord, Vector
+from aporia_rag.domain.ports import Embedder, IndexRecord
 from aporia_rag.indexing.indexer import citation_passage
 from aporia_rag.retrieval.retriever import Retriever
 from support.builders import make_chunk
-from support.fakes import InMemoryVectorStore
+from support.fakes import InMemoryVectorStore, cosine
 
 pytestmark = pytest.mark.llm
 
@@ -56,11 +55,6 @@ def embedder() -> Iterator[Embedder]:
         yield container.embedder
 
 
-def _cosine(a: Vector, b: Vector) -> float:
-    dot = sum(x * y for x, y in zip(a, b, strict=True))
-    return dot / (math.sqrt(sum(x * x for x in a)) * math.sqrt(sum(y * y for y in b)))
-
-
 def test_vectors_have_one_size_for_every_call(embedder: Embedder) -> None:  # L.1
     passages = [citation_passage(chunk) for chunk in (KANT, HOBBES, MILL)]
 
@@ -78,7 +72,7 @@ def test_query_and_passage_prompts_differ(embedder: Embedder) -> None:  # L.2
     as_query = embedder.embed_query(text)
     [as_passage] = embedder.embed_documents([Passage(text=text)])
 
-    assert _cosine(as_query, as_passage) < 0.9999
+    assert cosine(as_query, as_passage) < 0.9999
 
 
 def test_question_about_the_good_will_finds_kant(embedder: Embedder) -> None:  # L.3

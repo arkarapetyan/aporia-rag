@@ -172,8 +172,7 @@ class TestCache:
 
         result = fetch_cached(1497, tmp_path, source)
 
-        assert result.text == "cached Republic"
-        assert result.from_cache
+        assert result == (tmp_path / "pg1497.txt", True)  # path, from_cache
         assert source.calls == []
 
     def test_miss_downloads_and_stores_utf8(self, tmp_path: Path) -> None:  # 4.10
@@ -182,10 +181,8 @@ class TestCache:
 
         result = fetch_cached(1497, tmp_path, source)
 
-        assert result.text == text
-        assert not result.from_cache
-        assert result.path == tmp_path / "pg1497.txt"
-        assert result.path.read_text(encoding="utf-8") == text
+        assert result == (tmp_path / "pg1497.txt", False)  # path, from_cache
+        assert result.path.read_bytes() == text.encode("utf-8")
         assert source.calls == [1497]
 
     def test_creates_the_cache_directory(self, tmp_path: Path) -> None:  # 4.11

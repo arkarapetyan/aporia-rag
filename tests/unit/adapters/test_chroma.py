@@ -17,7 +17,7 @@ from chromadb.config import Settings
 from hypothesis import given
 from hypothesis import strategies as st
 
-from aporia_rag.adapters.chroma import ChromaVectorStore, client_settings, collection_name
+from aporia_rag.adapters.chroma import ChromaVectorStore, collection_name
 from aporia_rag.domain.errors import IndexMismatchError
 from aporia_rag.domain.models import EmbeddingSpace
 from support.builders import make_record
@@ -118,4 +118,3 @@ def test_persistent_client_has_telemetry_disabled(
     ChromaVectorStore.persistent(tmp_path / "index", SPACE)
 
     assert [settings.anonymized_telemetry for settings in settings_used] == [False]
-    assert client_settings().anonymized_telemetry is False

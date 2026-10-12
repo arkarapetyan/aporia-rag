@@ -32,7 +32,7 @@ from chromadb.config import Settings as ChromaSettings
 from chromadb.errors import NotFoundError
 
 from aporia_rag.domain.errors import IndexMismatchError
-from aporia_rag.domain.models import Chunk, EmbeddingSpace, RetrievedChunk
+from aporia_rag.domain.models import Chunk, EmbeddingSpace, RetrievedChunk, SourceMetadata
 from aporia_rag.domain.ports import (
     IndexRecord,
     MetadataFilter,
@@ -43,11 +43,6 @@ from aporia_rag.domain.ports import (
 
 _SPACE_KEY: Final = "space_id"
 _MAX_NAME_SLUG: Final = 54  # + "-" + 8 hex digits = 63, the most Chroma has ever allowed
-
-
-def client_settings() -> ChromaSettings:
-    """Settings for the clients this module creates: no usage telemetry sent anywhere."""
-    return ChromaSettings(anonymized_telemetry=False)
 
 
 def collection_name(space: EmbeddingSpace) -> str:
@@ -82,8 +77,8 @@ class ChromaVectorStore:
     def persistent(cls, path: Path, space: EmbeddingSpace) -> Self:
         """A store saved under `path` (created if missing)."""
         path.mkdir(parents=True, exist_ok=True)
-        client = chromadb.PersistentClient(path=str(path), settings=client_settings())
-        return cls(client, space)
+        settings = ChromaSettings(anonymized_telemetry=False)  # send no usage data anywhere
+        return cls(chromadb.PersistentClient(path=str(path), settings=settings), space)
 
     @property
     def space(self) -> EmbeddingSpace:
@@ -193,7 +188,6 @@ def _flatten(record: IndexRecord) -> Metadata:
 
 
 def _rebuild(chunk_id: str, text: str, metadata: Mapping[str, Any]) -> Chunk:
-    source_fields = ("author", "title", "source_id", "section", "translator")
     return Chunk.model_validate(
         {
             "id": chunk_id,
@@ -202,7 +196,7 @@ def _rebuild(chunk_id: str, text: str, metadata: Mapping[str, Any]) -> Chunk:
             "index": metadata["index"],
             "start_char": metadata["start_char"],
             "end_char": metadata["end_char"],
-            "metadata": {field: metadata.get(field) for field in source_fields},
+            "metadata": {field: metadata.get(field) for field in SourceMetadata.model_fields},
         }
     )
 

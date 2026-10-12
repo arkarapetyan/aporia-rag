@@ -79,8 +79,7 @@ class GutenbergMirror:
         return self._client.get(url, headers={"User-Agent": USER_AGENT})
 
 
-class CachedText(NamedTuple):
-    text: str
+class CachedFile(NamedTuple):
     path: Path
     from_cache: bool
 
@@ -90,22 +89,22 @@ def cache_path(cache_dir: Path, gutenberg_id: int) -> Path:
     return cache_dir / f"pg{gutenberg_id}.txt"
 
 
-def fetch_cached(gutenberg_id: int, cache_dir: Path, source: EbookSource) -> CachedText:
-    """Return an ebook's raw text, downloading it into `cache_dir` only if absent.
+def fetch_cached(gutenberg_id: int, cache_dir: Path, source: EbookSource) -> CachedFile:
+    """Make sure an ebook's raw text is in `cache_dir`, downloading it only if absent.
 
     The cache stores exactly what was downloaded (as UTF-8), so cleaning can be
-    changed and re-run without touching the network. Bytes are read and written
-    directly to avoid any newline translation. The file is written under a
-    temporary name and then renamed, so an interrupted write never leaves a
-    truncated file that a later run would mistake for a complete download.
+    changed and re-run without touching the network. Bytes are written directly
+    to avoid any newline translation. The file is written under a temporary
+    name and then renamed, so an interrupted write never leaves a truncated
+    file that a later run would mistake for a complete download.
     """
     path = cache_path(cache_dir, gutenberg_id)
     if path.is_file():
-        return CachedText(path.read_bytes().decode("utf-8"), path, from_cache=True)
+        return CachedFile(path, from_cache=True)
 
     text = source.download(gutenberg_id)
     cache_dir.mkdir(parents=True, exist_ok=True)
     partial = path.with_name(f"{path.name}.part")
     partial.write_bytes(text.encode("utf-8"))
     partial.replace(path)
-    return CachedText(text, path, from_cache=False)
+    return CachedFile(path, from_cache=False)

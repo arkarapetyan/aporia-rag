@@ -12,13 +12,11 @@ wheels/
 # Local configuration / secrets
 .env
 
-# Data: downloaded corpus, processed chunks and the vector index are all
-# reproducible from code, so none of them are committed.
+# Data: the downloaded corpus and the vector index are both reproducible
+# from code, so neither is committed.
 data/raw/*
-data/processed/*
 data/index/
 !data/raw/.gitkeep
-!data/processed/.gitkeep
 
 # Tool caches and reports
 .pytest_cache/

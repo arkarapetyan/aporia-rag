@@ -47,7 +47,6 @@ class IndexReport:
 class WorkProgress:
     """Sent to `on_progress` when one work has been indexed."""
 
-    source_id: str
     author: str
     title: str
     documents: int
@@ -85,6 +84,7 @@ class _RunState:
 
 
 def _work_key(document: Document) -> tuple[str, str, str]:
+    """A work is identified by its source; author and title come along for the report."""
     metadata = document.metadata
     return metadata.source_id, metadata.author, metadata.title
 
@@ -120,14 +120,14 @@ class Indexer:
         """
         started = time.perf_counter()
         state = _RunState(stored=self._store.fingerprints())
-        for (source_id, author, title), work in groupby(documents, key=_work_key):
+        for (_, author, title), work in groupby(documents, key=_work_key):
             document_count = chunk_count = 0
             for document in work:
                 document_count += 1
                 chunk_count += self._add(document, state)
             self._flush(state)  # a reported work is a stored work
             if on_progress is not None:
-                on_progress(WorkProgress(source_id, author, title, document_count, chunk_count))
+                on_progress(WorkProgress(author, title, document_count, chunk_count))
         stale = state.stored.keys() - state.seen
         self._store.delete(stale)
         return IndexReport(

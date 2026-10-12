@@ -7,15 +7,7 @@ consistency, immutability), not pydantic's general behaviour.
 import pytest
 from pydantic import ValidationError
 
-from aporia_rag.domain.models import (
-    ChatMessage,
-    ChatRole,
-    Chunk,
-    Document,
-    EmbeddingSpace,
-    Passage,
-    SourceMetadata,
-)
+from aporia_rag.domain.models import Chunk, Document, EmbeddingSpace, Passage, SourceMetadata
 
 METADATA = SourceMetadata(author="Plato", title="The Republic", source_id="gutenberg:1497")
 
@@ -122,11 +114,3 @@ class TestEmbeddingSpace:
     def test_rejects_non_positive_dimensions(self) -> None:  # 1.12
         with pytest.raises(ValidationError, match="dimensions"):
             EmbeddingSpace(provider="p", model="m", dimensions=0, prompt_format="f")
-
-
-def test_chat_message_roles_are_restricted() -> None:  # 1.13
-    message = ChatMessage.model_validate({"role": "user", "content": "What is justice?"})
-
-    assert message == ChatMessage(role=ChatRole.USER, content="What is justice?")
-    with pytest.raises(ValidationError, match="role"):
-        ChatMessage.model_validate({"role": "narrator", "content": "Once upon a time."})

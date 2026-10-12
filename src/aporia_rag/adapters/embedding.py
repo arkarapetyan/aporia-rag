@@ -60,8 +60,6 @@ class BatchingEmbedder(ABC):
         return vectors
 
     def embed_query(self, text: str) -> Vector:
-        if not text.strip():
-            raise ValueError("cannot embed a blank query")
         [vector] = self._checked([Passage(text=text)], EmbeddingPurpose.QUERY)
         return vector
 

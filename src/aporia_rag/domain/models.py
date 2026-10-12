@@ -6,7 +6,6 @@ mutate it behind another stage's back. `extra="forbid"` turns a misspelled
 field into an immediate error instead of a silently dropped value.
 """
 
-from enum import StrEnum
 from typing import Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -108,16 +107,3 @@ class RetrievedChunk(_ValueObject):
 
     chunk: Chunk
     score: float
-
-
-class ChatRole(StrEnum):
-    SYSTEM = "system"
-    USER = "user"
-    ASSISTANT = "assistant"
-
-
-class ChatMessage(_ValueObject):
-    """One message of a conversation with a chat model, in any provider's API."""
-
-    role: ChatRole
-    content: str

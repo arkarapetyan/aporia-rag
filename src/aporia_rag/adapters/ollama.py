@@ -43,9 +43,7 @@ class OllamaEmbedder(BatchingEmbedder):
         )
         super().__init__(space, batch_size=batch_size)
         self._client = client
-        self._model = model
         self._format = prompt_format
-        self._dimensions = dimensions
         self._keep_alive = keep_alive
 
     def close(self) -> None:
@@ -58,15 +56,16 @@ class OllamaEmbedder(BatchingEmbedder):
             inputs = [self._format.query(passage.text) for passage in passages]
         else:
             inputs = [self._format.document(passage) for passage in passages]
+        model = self.space.model
         try:
             response = self._client.embed(
-                model=self._model,
+                model=model,
                 input=inputs,
                 # Without this, Ollama silently cuts inputs longer than the
                 # model's context. A chunk embedded from half its text would
                 # still be retrieved by its whole text: better to fail loudly.
                 truncate=False,
-                dimensions=self._dimensions,
+                dimensions=self.space.dimensions,
                 keep_alive=self._keep_alive,
             )
         except ConnectionError as error:  # the client's translation of httpx.ConnectError
@@ -74,8 +73,7 @@ class OllamaEmbedder(BatchingEmbedder):
         except ollama.ResponseError as error:
             if error.status_code == HTTPStatus.NOT_FOUND:
                 raise ModelNotAvailableError(
-                    f"Ollama does not have the model {self._model!r}; "
-                    f"run `ollama pull {self._model}`"
+                    f"Ollama does not have the model {model!r}; run `ollama pull {model}`"
                 ) from error
             raise ProviderError(f"Ollama failed to embed: {error}") from error
         except httpx.HTTPError as error:  # e.g. a timeout, which the client lets through

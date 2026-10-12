@@ -23,7 +23,6 @@ def test_defaults_run_everything_locally() -> None:  # 9.1
     )
     assert settings.embedding.dimensions is None  # the model's native size
     assert settings.embedding.query_instruction is None  # the model's documented default
-    assert (settings.llm.provider, settings.llm.model) == ("ollama", "qwen3:14b")
     assert settings.storage.provider == "chroma"
     assert settings.storage.corpus_dir == Path("data/raw")
     assert settings.storage.index_dir == Path("data/index")
@@ -50,7 +49,7 @@ def test_values_are_read_from_a_dotenv_file_and_the_environment_wins(
 ) -> None:  # 9.3
     env_file = tmp_path / ".env"
     env_file.write_text(
-        "APORIA_LLM__MODEL=qwen3:8b\n"
+        "APORIA_EMBEDDING__MODEL=embeddinggemma:300m\n"
         "APORIA_CHUNKING__SIZE=800\n"
         "SOME_OTHER_TOOL_KEY=ignored\n",  # a shared .env may hold other tools' settings
         encoding="utf-8",
@@ -59,17 +58,17 @@ def test_values_are_read_from_a_dotenv_file_and_the_environment_wins(
 
     settings = Settings(_env_file=env_file)
 
-    assert settings.llm.model == "qwen3:8b"
+    assert settings.embedding.model == "embeddinggemma:300m"
     assert settings.chunking.size == 1200
 
 
 def test_load_settings_reads_the_dotenv_file_in_the_working_directory(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:  # 9.3
-    (tmp_path / ".env").write_text("APORIA_LLM__MODEL=qwen3:8b\n", encoding="utf-8")
+    (tmp_path / ".env").write_text("APORIA_EMBEDDING__MODEL=nomic-embed-text\n", encoding="utf-8")
     monkeypatch.chdir(tmp_path)
 
-    assert load_settings().llm.model == "qwen3:8b"
+    assert load_settings().embedding.model == "nomic-embed-text"
 
 
 @pytest.mark.parametrize(

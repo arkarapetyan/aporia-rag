@@ -103,7 +103,7 @@ class InMemoryVectorStore:
             return []
         common_dimension([vector], self._dimension())
         scored = [
-            (_cosine(vector, record.vector), record)
+            (cosine(vector, record.vector), record)
             for record in self._records.values()
             if _matches(record, filters)
         ]
@@ -128,7 +128,8 @@ class InMemoryVectorStore:
         return None if first is None else len(first.vector)
 
 
-def _cosine(a: Vector, b: Vector) -> float:
+def cosine(a: Vector, b: Vector) -> float:
+    """Cosine similarity of two non-zero vectors."""
     dot = sum(x * y for x, y in zip(a, b, strict=True))
     norms = math.sqrt(sum(x * x for x in a)) * math.sqrt(sum(y * y for y in b))
     return dot / norms

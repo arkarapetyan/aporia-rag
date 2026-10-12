@@ -27,9 +27,10 @@ place where a provider's API meets our interfaces. What must hold is that nothin
 **Enforced, not just documented.** The rules are [import-linter](https://import-linter.readthedocs.io)
 contracts in `pyproject.toml`, checked by `tests/unit/test_architecture.py` on every test run:
 
-- *layers*: `cli` > `bootstrap` > {`adapters`, `config`, `graph`, `indexing`, `ingestion`,
-  `retrieval`} > `domain`. Nothing imports a layer above it, and the middle packages do not import
-  each other: the indexer reaches Chroma only through the `VectorStore` port.
+- *layers*: `cli` > `bootstrap` > {`adapters`, `config`, `indexing`, `ingestion`, `retrieval`} >
+  `domain`. Nothing imports a layer above it, and the middle packages do not import each other:
+  the indexer reaches Chroma only through the `VectorStore` port. `graph` gets its place in this
+  contract when the package is created (it will sit above `retrieval`, which it calls).
 - *provider-libraries*: `chromadb` and `ollama` are imported by `adapters` only, directly or
   indirectly.
 
@@ -92,6 +93,9 @@ pin the real corpus (section counts per work, Jowett excluded, no Latin left). A
 of the loaded corpus then caught 71 margin notes merged into Cicero's paragraphs that no test had
 anticipated; that gap is now covered by both kinds of test.
 
+**Web fallback: `ddgs`.** Free with no API key. (The older `duckduckgo-search` package was renamed
+to `ddgs` upstream and is no longer maintained under its old name.)
+
 **Latin detection by function words, smoothed by neighbours.** A paragraph is English or Latin by
 majority vote of common function words (accents stripped, since the Loeb text marks verse
 stress). A tie, typically a short verse line with no function words at all, takes the language
@@ -101,20 +105,23 @@ paragraph found. A language-identification library would add a dependency for on
 
 ## Provider independence: ports, adapters, registries
 
-The application is written against four ports (`domain/ports.py`):
+The application is written against three ports (`domain/ports.py`):
 
 | Port | What it promises | Implementations |
 |---|---|---|
 | `Chunker` | `chunk(document) -> list[Chunk]` | `RecursiveChunker` |
 | `Embedder` | `space`, `embed_documents(passages)`, `embed_query(text)` | `OllamaEmbedder` (tests: `HashingEmbedder`) |
 | `VectorStore` | `space`, `upsert`, `query(vector, k, filters)`, `fingerprints`, `delete`, `clear`, `count` | `ChromaVectorStore` (tests: `InMemoryVectorStore`) |
-| `ChatModel` | `model_id`, `complete(messages)`, `complete_structured(messages, schema)` | (generation step) |
 
 They are `typing.Protocol`s: any class with these methods qualifies, without inheriting from
-anything. The ports speak only in domain types (`Passage`, `Chunk`, `ChatMessage`, plain
-`list[float]` vectors), never in a provider's types, and adapters translate provider exceptions
+anything. The ports speak only in domain types (`Passage`, `Chunk`, plain `list[float]`
+vectors), never in a provider's types, and adapters translate provider exceptions
 into the domain's (`ProviderUnavailableError`, `ModelNotAvailableError`...), so nothing outside
 `adapters/` can tell which provider is in use.
+
+A port is added together with its first caller and its first adapter, never ahead of them: the
+`ChatModel` port (plain and structured completion) arrives with the generation step, designed
+test-first against what the generator and the graders actually need.
 
 **Queries and passages are different calls.** Retrieval embedding models are trained
 asymmetrically, and each provider marks the difference its own way: an instruction (Qwen3), a
@@ -191,9 +198,6 @@ cosine, and the store reports similarity (1 - distance), so every store returns 
 **Fail loudly on over-long input.** Ollama silently truncates input longer than the model's
 context unless told not to; the adapter sends `truncate: false`, so an over-long chunk is an error
 instead of a vector of half its text.
-
-**Web fallback: `ddgs`.** Free with no API key. (The older `duckduckgo-search` package was renamed
-to `ddgs` upstream and is no longer maintained under its old name.)
 
 **Quality gate.** `ruff` (lint + format), `mypy --strict` over source *and* tests, pytest with
 warnings treated as errors and branch coverage at 90% or above. The same `make check` runs

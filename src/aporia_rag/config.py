@@ -52,11 +52,6 @@ class EmbeddingSettings(_Section):
     )
 
 
-class LLMSettings(_Section):
-    provider: str = "ollama"
-    model: str = "qwen3:14b"
-
-
 class ChunkingSettings(_Section):
     size: int = Field(default=1000, gt=0, description="Target chunk size in characters.")
     overlap: int = Field(default=150, ge=0, description="Characters repeated between chunks.")
@@ -86,7 +81,6 @@ class Settings(BaseSettings):
 
     ollama: OllamaSettings = OllamaSettings()
     embedding: EmbeddingSettings = EmbeddingSettings()
-    llm: LLMSettings = LLMSettings()
     chunking: ChunkingSettings = ChunkingSettings()
     storage: StorageSettings = StorageSettings()
 

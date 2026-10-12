@@ -18,22 +18,21 @@ from collections.abc import Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Final, Protocol
 
-from pydantic import BaseModel
-
 from aporia_rag.domain.errors import IndexMismatchError, VectorDimensionError
 from aporia_rag.domain.models import (
-    ChatMessage,
     Chunk,
     Document,
     EmbeddingSpace,
     Passage,
     RetrievedChunk,
+    SourceMetadata,
 )
 
 type Vector = list[float]
 type MetadataFilter = Mapping[str, str]
 
-FILTERABLE_FIELDS: Final = frozenset({"author", "title", "translator", "section", "source_id"})
+# Every provenance field is stored with a chunk, so every one can be filtered on.
+FILTERABLE_FIELDS: Final = frozenset(SourceMetadata.model_fields)
 
 
 class Chunker(Protocol):
@@ -113,27 +112,6 @@ class VectorStore(Protocol):
         ...
 
     def count(self) -> int: ...
-
-
-class ChatModel(Protocol):
-    """A chat LLM. Used from the generation step on (adapters come with it).
-
-    `complete_structured` is what the graders need: an answer parsed into a
-    pydantic model. Providers implement it differently (Ollama's `format`
-    JSON schema, Anthropic tool use, Google's `response_schema`), which is
-    exactly why it is part of the port and not left to the callers.
-    """
-
-    @property
-    def model_id(self) -> str:
-        """e.g. 'ollama/qwen3:14b'."""
-        ...
-
-    def complete(self, messages: Sequence[ChatMessage], *, temperature: float = 0.0) -> str: ...
-
-    def complete_structured[T: BaseModel](
-        self, messages: Sequence[ChatMessage], schema: type[T], *, temperature: float = 0.0
-    ) -> T: ...
 
 
 def check_filters(filters: MetadataFilter | None) -> None:

@@ -33,9 +33,11 @@ from typing import Final, NamedTuple
 
 from aporia_rag.domain.models import Chunk, Document
 
-# Every boundary pattern ends by consuming a whole whitespace run, so a match's
-# end is always the first character of the next piece (overlap relies on this).
-_PARAGRAPH: Final = re.compile(r"\n\s*\n\s*")
+# Every boundary pattern matches a whole whitespace run, from its first character
+# to its last. So the pieces between matches never start or end with whitespace,
+# and a match's end is always the first character of the next piece (overlap
+# relies on this).
+_PARAGRAPH: Final = re.compile(r"\s*\n\s*\n\s*")
 # Sentence end, optionally followed by a closing quote or bracket. Python only
 # supports fixed-width look-behinds, hence the two alternatives.
 _SENTENCE: Final = re.compile(r"(?:(?<=[.!?])|(?<=[.!?][\"'\u201d\u2019)\]]))\s+")
@@ -153,20 +155,17 @@ class RecursiveChunker:
 
 
 def _split_at(text: str, span: _Span, boundary: re.Pattern[str]) -> list[_Span]:
-    """Split `span` at every match of `boundary`, trimming each piece.
+    """Split `span` at every match of `boundary`.
 
-    With the current boundaries a piece is never blank (each pattern consumes
-    a maximal whitespace run and `span` is already trimmed), so the `None`
-    checks below are a guard for future boundary patterns, not live branches.
+    `span` is already trimmed and every match is a whole whitespace run, so
+    every piece is non-blank and trimmed too: no piece needs `_strip`.
     """
     pieces: list[_Span] = []
     cursor = span.start
     for match in boundary.finditer(text, span.start, span.end):
-        if (piece := _strip(text, _Span(cursor, match.start()))) is not None:  # pragma: no branch
-            pieces.append(piece)
+        pieces.append(_Span(cursor, match.start()))
         cursor = match.end()
-    if (last := _strip(text, _Span(cursor, span.end))) is not None:  # pragma: no branch
-        pieces.append(last)
+    pieces.append(_Span(cursor, span.end))
     return pieces
 
 

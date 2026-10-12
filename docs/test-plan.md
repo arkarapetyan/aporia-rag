@@ -44,7 +44,6 @@ a document). Only *our* constraints are tested here, not pydantic itself.
 | 1.10 | `SourceMetadata.translator` is optional and defaults to `None` | Citations name the translator when there is one ("tr. Jowett"). |
 | 1.11 | `Passage` (what an embedder receives) needs text; its title is optional but never empty | An empty passage would be embedded as noise. |
 | 1.12 | `EmbeddingSpace.id` names provider, model, size (`native` when unset) and prompt format; the size must be positive | Vectors are only comparable within one space, so every part of it must be recorded. |
-| 1.13 | `ChatMessage` roles are restricted to system, user and assistant | The common denominator of every chat API (Ollama, Anthropic, Google, OpenAI). |
 | 1.14 | `check_filters` accepts known metadata fields and rejects others, listing the known ones | A misspelled filter must fail, not silently match nothing. |
 | 1.15 | `common_dimension` returns the shared vector size and raises `VectorDimensionError` (a `ValueError`) on mixed, unexpected or empty vectors | One rule for every vector store. |
 | 1.16 | `SourceMetadata.citation` is "Author, Title, Section", or "Author, Title" without a section | One citation format for the index, the CLI and (later) generated answers. |
@@ -86,6 +85,7 @@ that (text with no sentence or clause punctuation), a unit boundary. Never part 
 | 2.11 | 1 sentence of 4 `;`-clauses (25, 21, 19, 19) | 55 | `[c1 c2, c3 c4]`, not `"… rule; spirit"` |
 | 2.12 | 10 words, no punctuation | 15 | `["one two three", "four five six", "seven eight", "nine ten"]` |
 | 2.13 | A 20-char token between short words | 10 | token hard-split into two 10-char pieces, neighbours untouched |
+| 2.35 | `"Socrates asks.  \n\nGlaucon objects."` (spaces before the break) | 20 | `["Socrates asks.", "Glaucon objects."]`: the spaces belong to the break, not the chunk. Hypothesis did not find this case in 100 examples, so it is pinned here |
 
 **Overlap** (4 sentences of 15, 15, 15, 16 chars)
 
@@ -175,8 +175,8 @@ The list of works lives in a packaged TOML file, validated into `WorkSpec` / `Co
 | 4.6 | A server error (5xx) raises immediately instead of silently trying the next candidate |
 | 4.7 | Waits `delay_seconds` before every request except the first (Gutenberg's 2-second rule), including 404 probes |
 | 4.8 | Sends an identifying `User-Agent` |
-| 4.9 | Cache hit: returns the cached text without making any request |
-| 4.10 | Cache miss: downloads, stores the text as UTF-8 at `cache_dir/pgN.txt`, returns it |
+| 4.9 | Cache hit: returns the cached file's path, marked as from the cache, without making any request |
+| 4.10 | Cache miss: downloads, stores the text as UTF-8 at `cache_dir/pgN.txt`, returns that path |
 | 4.11 | Creates the cache directory if it does not exist |
 | 4.12 | A failed download writes nothing to the cache; a successful one leaves no temporary files |
 
@@ -320,7 +320,7 @@ Known residue, accepted as low-impact: `***` lacuna marks, and about 30 unbalanc
 
 **Design rule: provider independence.** Nothing outside `adapters/` knows which model provider or
 vector database is in use. The application depends on interfaces in `domain/ports.py`:
-`Embedder`, `VectorStore`, `Chunker`, and (for the generation step) `ChatModel`. Adapters implement
+`Embedder`, `VectorStore` and `Chunker` (a `ChatModel` port arrives with the generation step). Adapters implement
 them; `bootstrap.py` chooses an adapter by name from the settings through a small registry, so
 adding Google, Voyage or Anthropic later means one new adapter class and one registration, with no
 change to the indexer, retriever or graph.
@@ -343,7 +343,7 @@ later graph tests is proven to behave like the real store.
 
 | # | Test |
 |---|---|
-| 9.1 | Defaults: Ollama at `http://localhost:11434`, embedding `ollama` / `qwen3-embedding:0.6b`, LLM `ollama` / `qwen3:14b`, Chroma index in `data/index`, corpus in `data/raw`, chunks 1000/150 |
+| 9.1 | Defaults: Ollama at `http://localhost:11434`, embedding `ollama` / `qwen3-embedding:0.6b`, Chroma index in `data/index`, corpus in `data/raw`, chunks 1000/150 |
 | 9.2 | Nested environment variables override defaults (`APORIA_EMBEDDING__MODEL=...`) |
 | 9.3 | Values are read from a `.env` file, and real environment variables win over it |
 | 9.4 | Invalid values are rejected: batch size 0, chunk overlap not smaller than chunk size |
@@ -368,7 +368,7 @@ later graph tests is proven to behave like the real store.
 |---|---|
 | 10.8 | Passages are sent in batches of `batch_size`, order preserved |
 | 10.9 | Queries are sent with the QUERY purpose, passages with the DOCUMENT purpose |
-| 10.10 | An empty list of passages returns `[]` without calling the provider; a blank query raises `ValueError` |
+| 10.10 | An empty list of passages returns `[]` without calling the provider (a blank query is the `Retriever`'s to reject: 13.5) |
 | 10.11 | The wrong number of vectors back raises `ProviderError` |
 | 10.12 | Vectors of inconsistent size, or not of the configured size, raise `ProviderError` |
 | 10.13 | `batch_size` must be positive |
