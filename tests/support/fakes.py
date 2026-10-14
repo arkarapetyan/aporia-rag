@@ -141,14 +141,18 @@ def _matches(record: IndexRecord, filters: MetadataFilter | None) -> bool:
 
 
 class RecordingTransport(httpx.MockTransport):
-    """A MockTransport that remembers whether the client using it was closed."""
+    """A MockTransport that counts how many clients using it were closed."""
 
     def __init__(self, handler: Callable[[httpx.Request], httpx.Response]) -> None:
         super().__init__(handler)
-        self.closed = False
+        self.closes = 0
+
+    @property
+    def closed(self) -> bool:
+        return self.closes > 0
 
     def close(self) -> None:
-        self.closed = True
+        self.closes += 1
 
 
 class FakeOllamaServer:

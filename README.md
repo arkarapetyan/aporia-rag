@@ -85,6 +85,7 @@ uv run aporia-rag fetch           # download the 12 works into data/raw (cached 
 uv run aporia-rag index           # embed them into the vector index in data/index
 uv run aporia-rag search "Is anything good without qualification?" -k 5
 uv run aporia-rag search "What is justice?" --author plato
+uv run aporia-rag evaluate        # Hit@k and MRR of retrieval on 40 gold questions
 make check                        # lint, strict type-check, tests with coverage: what CI runs
 make help                         # list all targets
 ```

@@ -1,0 +1,333 @@
+# Gold questions for evaluating retrieval (the embedding bake-off).
+#
+# Each question lists the evidence a good retriever should find: the section
+# (document id) and a short verbatim quote from the passage that answers it.
+# A retrieved chunk is a *passage hit* when it comes from that section and
+# contains the quote (whitespace-insensitive), and a *section hit* when it
+# merely comes from that section. A question may list several pieces of
+# evidence; finding any one of them counts.
+#
+# Writing rules, so the set measures meaning rather than word overlap:
+# - Ask as a reader would, in modern English, not in the source's wording.
+# - Name the author in some questions and not in others.
+# - Quotes are short and verbatim from the edition in data/raw (Hobbes keeps
+#   his 1651 spelling); tests/integration checks every quote is findable.
+
+# --- Plato, Republic ------------------------------------------------------
+
+[[questions]]
+id = "plato-thrasymachus"
+question = "Who argued that justice is simply whatever benefits those in power?"
+[[questions.evidence]]
+document = "plato-republic/book-i"
+quote = "justice is nothing else than the interest of the stronger"
+
+[[questions]]
+id = "plato-invisible-ring"
+question = "Would someone still behave justly if they could never be caught or seen?"
+[[questions.evidence]]
+document = "plato-republic/book-ii"
+quote = "possessed by Gyges, the ancestor of Croesus the Lydian"
+[[questions.evidence]]
+document = "cicero-de-officiis/book-iii"
+quote = "Plato introduces the familiar story of Gyges"
+
+[[questions]]
+id = "plato-justice-in-the-city"
+question = "In Plato's ideal state, what does justice consist in?"
+[[questions.evidence]]
+document = "plato-republic/book-iv"
+quote = "one man should practise one thing only"
+
+[[questions]]
+id = "plato-philosopher-rulers"
+question = "Who does Socrates think should govern the city if it is ever to be well run?"
+[[questions.evidence]]
+document = "plato-republic/book-v"
+quote = "Until philosophers are kings"
+
+[[questions]]
+id = "plato-cave"
+question = "What is the image of the prisoners who mistake shadows on a wall for reality?"
+[[questions.evidence]]
+document = "plato-republic/book-vii"
+quote = "human beings living in a underground den"
+
+# --- Aristotle, Nicomachean Ethics -----------------------------------------
+
+[[questions]]
+id = "aristotle-human-good"
+question = "What does Aristotle conclude the good for a human being is, judging by our distinctive function?"
+[[questions.evidence]]
+document = "aristotle-nicomachean-ethics/book-i-chapter-v"
+quote = "a working of the Soul in the way of Excellence"
+
+[[questions]]
+id = "aristotle-virtue-as-mean"
+question = "How does Aristotle define moral virtue?"
+[[questions.evidence]]
+document = "aristotle-nicomachean-ethics/book-ii-chapter-vi"
+quote = "a state apt to exercise deliberate choice, being in the relative mean"
+[[questions.evidence]]
+document = "aristotle-nicomachean-ethics/book-ii-chapter-v"
+quote = "Virtue then is in a sense a mean state"
+
+[[questions]]
+id = "aristotle-kinds-of-friendship"
+question = "What different kinds of friendship are there, and what is each based on?"
+[[questions.evidence]]
+document = "aristotle-nicomachean-ethics/book-viii-chapter-iv"
+quote = "The species then of Friendship are three"
+
+# --- Cicero, De Officiis ---------------------------------------------------
+
+[[questions]]
+id = "cicero-expedient-and-right"
+question = "Can a dishonourable act ever really be in our interest?"
+[[questions.evidence]]
+document = "cicero-de-officiis/book-iii"
+quote = "what is morally wrong can never be expedient"
+
+[[questions]]
+id = "cicero-sources-of-duty"
+question = "From which basic virtues does Cicero derive all of our moral duties?"
+[[questions.evidence]]
+document = "cicero-de-officiis/book-i"
+quote = "all that is morally right rises from some one of four sources"
+
+# --- Seneca, Minor Dialogues -----------------------------------------------
+
+[[questions]]
+id = "seneca-good-men-suffer"
+question = "If the gods care for us, why do misfortunes fall on good people?"
+[[questions.evidence]]
+document = "seneca-minor-dialogues/of-providence"
+quote = "Why do many things turn out badly for good men?"
+
+[[questions]]
+id = "seneca-anger-madness"
+question = "Why do some philosophers compare an angry man to someone who has lost his mind?"
+[[questions.evidence]]
+document = "seneca-minor-dialogues/of-anger-book-i"
+quote = "called anger a short madness"
+
+[[questions]]
+id = "seneca-time-wasted"
+question = "Is our time on earth really too brief, or do we just squander it?"
+[[questions.evidence]]
+document = "seneca-minor-dialogues/of-the-shortness-of-life"
+quote = "Life is long enough, if you know how to use it"
+
+[[questions]]
+id = "seneca-happy-life"
+question = "According to Seneca, what does living happily require?"
+[[questions.evidence]]
+document = "seneca-minor-dialogues/of-a-happy-life"
+quote = "To live happily, then, is the same thing as to live according to Nature"
+
+# --- Kant, Fundamental Principles of the Metaphysic of Morals ---------------
+
+[[questions]]
+id = "kant-good-will"
+question = "Is there anything that is good in itself, whatever its results?"
+[[questions.evidence]]
+document = "kant-metaphysic-of-morals/first-section"
+quote = "which can be called good, without qualification, except a good will"
+
+[[questions]]
+id = "kant-universal-law"
+question = "How can I test whether the principle behind my action is morally acceptable, according to Kant?"
+[[questions.evidence]]
+document = "kant-metaphysic-of-morals/second-section"
+quote = "Act only on that maxim whereby thou canst at the same time will that it should become a universal law"
+
+[[questions]]
+id = "kant-persons-as-ends"
+question = "Is it ever right to use another person merely as a tool for your own purposes?"
+[[questions.evidence]]
+document = "kant-metaphysic-of-morals/second-section"
+quote = "in every case as an end withal, never as means only"
+
+# --- Mill, Utilitarianism --------------------------------------------------
+
+[[questions]]
+id = "mill-right-actions"
+question = "What makes an action right or wrong for a utilitarian?"
+[[questions.evidence]]
+document = "mill-utilitarianism/chapter-ii"
+quote = "actions are right in proportion as they tend to promote happiness"
+
+[[questions]]
+id = "mill-higher-pleasures"
+question = "Are some pleasures better than others, or does only the amount of pleasure count?"
+[[questions.evidence]]
+document = "mill-utilitarianism/chapter-ii"
+quote = "some kinds of pleasure are more desirable and more valuable than others"
+[[questions.evidence]]
+document = "mill-utilitarianism/chapter-ii"
+quote = "better to be Socrates dissatisfied than a fool satisfied"
+
+[[questions]]
+id = "mill-proof-of-utility"
+question = "How can anyone prove that happiness is worth wanting?"
+[[questions.evidence]]
+document = "mill-utilitarianism/chapter-iv"
+quote = "the sole evidence it is possible to produce that anything is desirable, is that people do actually desire it"
+
+[[questions]]
+id = "mill-justice-and-utility"
+question = "How does Mill reconcile our strong feeling of justice with utilitarianism?"
+[[questions.evidence]]
+document = "mill-utilitarianism/chapter-v"
+quote = "Justice is a name for certain classes of moral rules"
+
+# --- Nietzsche, The Genealogy of Morals -------------------------------------
+
+[[questions]]
+id = "nietzsche-origin-of-good"
+question = "Where did the original judgment 'good' come from, according to Nietzsche?"
+[[questions.evidence]]
+document = "nietzsche-genealogy-of-morals/first-essay-good-and-evil-good-and-bad"
+quote = "It was out of this pathos of distance that they first arrogated the right to create values"
+
+[[questions]]
+id = "nietzsche-resentment-creates-values"
+question = "How did the bitterness of the powerless give birth to a new morality?"
+[[questions.evidence]]
+document = "nietzsche-genealogy-of-morals/first-essay-good-and-evil-good-and-bad"
+quote = "The revolt of the slaves in morals begins in the very principle of resentment becoming creative"
+
+[[questions]]
+id = "nietzsche-bad-conscience"
+question = "How does Nietzsche explain the origin of the bad conscience?"
+[[questions.evidence]]
+document = "nietzsche-genealogy-of-morals/second-essay-guilt-bad-conscience-and-the-like"
+quote = "All instincts which do not find a vent without, turn inwards"
+
+# --- Descartes, Discourse on the Method -----------------------------------
+
+[[questions]]
+id = "descartes-cogito"
+question = "What is the one truth Descartes found that no doubt could shake?"
+[[questions.evidence]]
+document = "descartes-discourse-on-method/part-iv"
+quote = "I think, therefore I am"
+
+[[questions]]
+id = "descartes-first-rule"
+question = "What was the first rule of Descartes' method?"
+[[questions.evidence]]
+document = "descartes-discourse-on-method/part-ii"
+quote = "never to accept anything for true which I did not clearly know to be such"
+
+[[questions]]
+id = "descartes-provisional-morality"
+question = "How did Descartes decide to live while he was still doubting everything?"
+[[questions.evidence]]
+document = "descartes-discourse-on-method/part-iii"
+quote = "The first was to obey the laws and customs of my country"
+
+# --- Hume, An Enquiry Concerning Human Understanding -----------------------
+
+[[questions]]
+id = "hume-origin-of-ideas"
+question = "Where do all our ideas ultimately come from, according to Hume?"
+[[questions.evidence]]
+document = "hume-enquiry/section-ii"
+quote = "all our ideas or more feeble perceptions are copies of our impressions"
+
+[[questions]]
+id = "hume-future-like-past"
+question = "Why do we expect the future to resemble the past?"
+[[questions.evidence]]
+document = "hume-enquiry/section-v-part-i"
+quote = "Custom, then, is the great guide of human life"
+
+[[questions]]
+id = "hume-miracles"
+question = "Can eyewitness testimony ever make it reasonable to believe that a miracle happened?"
+[[questions.evidence]]
+document = "hume-enquiry/section-x-part-i"
+quote = "A miracle is a violation of the laws of nature"
+
+# --- Schopenhauer, The World as Will and Idea, Vol. 1 -----------------------
+
+[[questions]]
+id = "schopenhauer-world-as-representation"
+question = "Does the world exist only as it appears to a knowing subject?"
+[[questions.evidence]]
+document = "schopenhauer-world-as-will-vol1/first-book-the-world-as-idea"
+quote = "this is a truth which holds good for everything that lives and knows"
+
+[[questions]]
+id = "schopenhauer-thing-in-itself"
+question = "What lies behind all appearances, according to Schopenhauer?"
+[[questions.evidence]]
+document = "schopenhauer-world-as-will-vol1/second-book-the-world-as-will"
+quote = "What is the thing-in-itself? The will, we have answered"
+
+[[questions]]
+id = "schopenhauer-music"
+question = "Why does music move us more deeply than painting or poetry?"
+[[questions.evidence]]
+document = "schopenhauer-world-as-will-vol1/third-book-the-world-as-idea"
+quote = "Music is as direct an objectification and copy of the whole will as the world itself"
+
+[[questions]]
+id = "schopenhauer-pain-and-boredom"
+question = "Why can human life never find lasting satisfaction?"
+[[questions.evidence]]
+document = "schopenhauer-world-as-will-vol1/fourth-book-the-world-as-will"
+quote = "its life swings like a pendulum backwards and forwards between pain and ennui"
+
+# --- Hobbes, Leviathan (1651 spelling) -------------------------------------
+
+[[questions]]
+id = "hobbes-state-of-nature"
+question = "What would life be like if there were no government at all?"
+[[questions.evidence]]
+document = "hobbes-leviathan/part-i-of-man-chapter-xiii-of-the-naturall-condition-of-mankind-as-concerning-their-felicity-and-misery"
+quote = "the life of man, solitary, poore, nasty, brutish, and short"
+[[questions.evidence]]
+document = "hobbes-leviathan/part-i-of-man-chapter-xiii-of-the-naturall-condition-of-mankind-as-concerning-their-felicity-and-misery"
+quote = "such a warre, as is of every man, against every man"
+
+[[questions]]
+id = "hobbes-first-law-of-nature"
+question = "What is the first and most basic law of nature for Hobbes?"
+[[questions.evidence]]
+document = "hobbes-leviathan/part-i-of-man-chapter-xiv-of-the-first-and-second-naturall-lawes-and-of-contracts"
+quote = "To seek Peace, and follow it"
+
+[[questions]]
+id = "hobbes-sovereign"
+question = "Why do people hand over their power to a single sovereign?"
+[[questions.evidence]]
+document = "hobbes-leviathan/part-ii-of-common-wealth-chapter-xvii-of-the-causes-generation-and-definition-of-a-common-wealth"
+quote = "to conferre all their power and strength upon one Man, or upon one Assembly of men"
+
+# --- Mill, On Liberty ------------------------------------------------------
+
+[[questions]]
+id = "mill-harm-principle"
+question = "When is society entitled to restrict what an individual does?"
+[[questions.evidence]]
+document = "mill-on-liberty/chapter-i"
+quote = "the sole end for which mankind are warranted, individually or collectively, in interfering with the liberty of action"
+
+[[questions]]
+id = "mill-silencing-opinions"
+question = "Why is it wrong to suppress an opinion, even one we believe is false?"
+[[questions.evidence]]
+document = "mill-on-liberty/chapter-ii"
+quote = "the peculiar evil of silencing the expression of an opinion"
+[[questions.evidence]]
+document = "mill-on-liberty/chapter-ii"
+quote = "it will be held as a dead dogma, not a living truth"
+
+[[questions]]
+id = "mill-individuality"
+question = "Why should people be free to live in unconventional ways?"
+[[questions.evidence]]
+document = "mill-on-liberty/chapter-iii"
+quote = "Human nature is not a machine to be built after a model"

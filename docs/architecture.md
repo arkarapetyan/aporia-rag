@@ -10,7 +10,7 @@ src/aporia_rag/
 ├── retrieval/     Question -> nearest chunks. Depends on domain ports.
 ├── adapters/      Ollama, Chroma (later ddgs, Google...) implementations of the ports.
 ├── graph/         (planned) LangGraph state, nodes and wiring. Depends on domain ports only.
-├── evaluation/    (planned) Corrective vs. baseline comparison on a curated question set.
+├── evaluation/    Gold questions and metrics: retrieval now (Hit@k, MRR), answers later.
 ├── config.py      Settings from the environment / .env.
 ├── bootstrap.py   Composition root: provider registries and the Container that builds everything.
 └── cli.py         `aporia-rag fetch | index | search`.
@@ -27,8 +27,8 @@ place where a provider's API meets our interfaces. What must hold is that nothin
 **Enforced, not just documented.** The rules are [import-linter](https://import-linter.readthedocs.io)
 contracts in `pyproject.toml`, checked by `tests/unit/test_architecture.py` on every test run:
 
-- *layers*: `cli` > `bootstrap` > {`adapters`, `config`, `indexing`, `ingestion`, `retrieval`} >
-  `domain`. Nothing imports a layer above it, and the middle packages do not import each other:
+- *layers*: `cli` > `bootstrap` > {`adapters`, `config`, `evaluation`, `indexing`, `ingestion`,
+  `retrieval`} > `domain`. Nothing imports a layer above it, and the middle packages do not import each other:
   the indexer reaches Chroma only through the `VectorStore` port. `graph` gets its place in this
   contract when the package is created (it will sit above `retrieval`, which it calls).
 - *provider-libraries*: `chromadb` and `ollama` are imported by `adapters` only, directly or
@@ -199,6 +199,31 @@ cosine, and the store reports similarity (1 - distance), so every store returns 
 context unless told not to; the adapter sends `truncate: false`, so an over-long chunk is an error
 instead of a vector of half its text.
 
-**Quality gate.** `ruff` (lint + format), `mypy --strict` over source *and* tests, pytest with
+## Evaluation
+
+**Judge retrieval on a gold set, not on single queries.** `evaluation/gold_retrieval.toml` holds
+40 hand-written questions over all 12 works, each with its evidence: a section and a short
+verbatim quote from the answering passage. `aporia-rag evaluate --model A --model B` searches every
+question in each model's own index and reports Hit@1/5/10 and MRR@10 at two levels: a *passage
+hit* (the chunk contains the quote: what the generator needs) and a *section hit* (right section,
+maybe the wrong paragraph). The gap between the two levels separates chunk dilution from not
+understanding the question.
+
+**Quotes, not chunk ids.** Matching the quote keeps the gold set valid when chunking changes, so
+the same questions can later compare chunk sizes. An integration test checks that every quote
+sits inside a chunk of its section, since an unfindable quote would silently lower every score.
+
+**Questions in a reader's words.** The questions avoid the source's wording, so they measure
+meaning rather than word overlap: a bag-of-words baseline (feature hashing, the test embedder)
+finds the passage in its top 5 for only 15% of them. With 40 questions, one question is 2.5
+points, so smaller differences between models are noise.
+
+**The evaluation depends on a `Searcher` protocol** (`search(question, *, k)`) declared next to
+it. `Retriever` satisfies it structurally, so `evaluation` imports neither `retrieval` nor a
+provider, and the corrective graph will be measured through the same interface.
+
+## Quality gate
+
+**One gate everywhere.** `ruff` (lint + format), `mypy --strict` over source *and* tests, pytest with
 warnings treated as errors and branch coverage at 90% or above. The same `make check` runs
 locally, in the pre-commit hook and in CI, so they can never disagree.

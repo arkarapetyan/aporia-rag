@@ -311,6 +311,7 @@ Each work's start marker, end marker and section heading patterns live in its `l
 | I.6 | No document contains Gutenberg boilerplate, a footnote paragraph or an index |
 | I.7 | Document ids are unique across the whole corpus |
 | I.8 | No `#margin note#` survives anywhere in *De Officiis* (Miller's summaries are not Cicero's words) |
+| I.9 | Every piece of evidence in the packaged gold set names an existing document, and its quote occurs in that document and inside at least one chunk at the configured chunk size and overlap |
 
 Known residue, accepted as low-impact: `***` lacuna marks, and about 30 unbalanced italics underscores (`_any_thing`) across 6.4 million characters.
 
@@ -468,6 +469,57 @@ later graph tests is proven to behave like the real store.
 | 15.9 | A corrupt corpus file is a one-line error naming the work, like every other expected failure |
 | 15.10 | Commands release their connections before returning |
 
+---
+
+## Measuring retrieval: components 16-17
+
+The embedding bake-off compares models on a **gold set**: questions written by hand, each with
+the evidence a good retriever should find. Evidence is a section (document id) plus a short
+verbatim quote from the passage that answers the question. The packaged set,
+`evaluation/gold_retrieval.toml`, has 40 questions covering all 12 works, written in a reader's
+words rather than the source's (a bag-of-words baseline finds only 15% of them in its top 5),
+naming the author in some questions and not in others, with Hobbes in his 1651 spelling.
+
+Relevance is judged at two levels, because they fail for different reasons:
+
+- **Passage hit**: the chunk comes from the evidence section *and* contains the quote. This is
+  what the generator needs to answer, so it is the headline metric.
+- **Section hit**: the chunk only comes from the evidence section. A section hit without a
+  passage hit means "right place, wrong paragraph", e.g. chunk dilution; a miss at both levels
+  means retrieval did not understand the question.
+
+Quotes are matched rather than chunk ids so that the gold set survives changes to chunking: a
+chunk-size experiment re-chunks everything, but the quote is still in whichever chunk holds it.
+
+Metrics come from one top-10 retrieval per question: **Hit@k** (share of questions with a hit in
+the top k) and **MRR@10** (mean of 1/rank of the first hit, 0 for a miss). With 40 questions,
+one question is 2.5 points: differences smaller than that are noise.
+
+The evaluation depends on a small `Searcher` protocol (`search(question, *, k)`) defined next to
+it, which `Retriever` satisfies structurally; so `evaluation` imports neither `retrieval` nor any
+provider, and later the corrective graph can be measured the same way.
+
+## Component 16: Retrieval evaluation (`aporia_rag.evaluation`)
+
+| # | Test |
+|---|---|
+| 16.1 | `Evidence` needs a non-blank document id and quote; `GoldQuestion` needs a slug id, a non-blank question and at least one piece of evidence; unknown fields are rejected |
+| 16.2 | `GoldSet` needs at least one question and rejects duplicate question ids |
+| 16.3 | `load_gold_set` parses a TOML file; the packaged gold set loads and has evidence in every work of the corpus manifest |
+| 16.4 | A chunk is a passage hit when it comes from the evidence's document and contains the quote, ignoring differences in whitespace; the same quote in another document is not a hit; a section hit only needs the document |
+| 16.5 | A question with several pieces of evidence is hit by any one of them |
+| 16.6 | `hit_rate(ranks, k)` is the share of ranks within k; `mean_reciprocal_rank(ranks)` averages 1/rank with misses counting 0 |
+| 16.7 | `evaluate_retrieval` asks the searcher once per question for the top 10 and reports, in gold-set order, the rank of the first passage hit and of the first section hit (`None` for a miss) |
+
+## Component 17: `evaluate` command (`aporia_rag.cli`)
+
+| # | Test |
+|---|---|
+| 17.1 | `evaluate` prints passage and section metrics for the configured embedding model and the ranks for every question |
+| 17.2 | `evaluate --model A --model B` evaluates each model on its own index (built with that model) and prints one column per model |
+| 17.3 | A model whose index is empty is a one-line error naming the model and the command that indexes it |
+| 17.4 | `evaluate` releases the connections of every model it evaluated |
+
 ## Architecture rules (`tests/unit/test_architecture.py`, run in the default suite)
 
 The dependency rules of [architecture.md](architecture.md) are checked by
@@ -477,7 +529,7 @@ instead of waiting for a code review to notice it.
 
 | # | Test |
 |---|---|
-| A.1 | Layers: `cli` > `bootstrap` > {`adapters`, `config`, `graph`, `indexing`, `ingestion`, `retrieval`} > `domain`; nothing imports a layer above it, and the middle packages do not import each other |
+| A.1 | Layers: `cli` > `bootstrap` > {`adapters`, `config`, `evaluation`, `indexing`, `ingestion`, `retrieval`} > `domain`; nothing imports a layer above it, and the middle packages do not import each other |
 | A.2 | Provider libraries (`chromadb`, `ollama`) are imported only by `adapters` (and so are reachable only through `bootstrap`) |
 
 ## Real-model tests (opt-in: `make test-llm`; need Ollama with the configured embedding model)

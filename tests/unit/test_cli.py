@@ -381,3 +381,110 @@ def test_commands_release_their_connections(
     _run(*command, manifest=index_manifest, settings=settings, transport=server.transport)
 
     assert server.transport.closed
+
+
+# --------------------------------------------------------------------------
+# evaluate (Component 17)
+# --------------------------------------------------------------------------
+
+GOLD = """
+[[questions]]
+id = "good-will"
+question = "What can be called good without qualification?"
+[[questions.evidence]]
+document = "kant-groundwork/first-section"
+quote = "except a good will"
+
+[[questions]]
+id = "state-of-nature"
+question = "What is the life of man like without a common power?"
+[[questions.evidence]]
+document = "hobbes-leviathan/chapter-xiii"
+quote = "nasty, brutish, and short"
+"""
+QWEN = "qwen3-embedding:0.6b"
+GEMMA = "embeddinggemma:300m"
+
+
+@pytest.fixture
+def gold(tmp_path: Path) -> Path:
+    path = tmp_path / "gold.toml"
+    path.write_text(GOLD, encoding="utf-8")
+    return path
+
+
+def _with_model(settings: Settings, model: str) -> Settings:
+    return settings.model_copy(
+        update={"embedding": settings.embedding.model_copy(update={"model": model})}
+    )
+
+
+def _evaluate(gold: Path, settings: Settings, server: FakeOllamaServer, *models: str) -> int:
+    argv = ["evaluate", "--gold", str(gold)]
+    for model in models:
+        argv += ["--model", model]
+    return main(argv, transport=server.transport, settings=settings)
+
+
+def test_evaluate_prints_metrics_and_every_questions_rank(
+    index_manifest: Path, gold: Path, settings: Settings, capsys: pytest.CaptureFixture[str]
+) -> None:  # 17.1
+    server = FakeOllamaServer()
+    _index(index_manifest, settings, server)
+    capsys.readouterr()
+
+    exit_code = _evaluate(gold, settings, server)
+
+    assert exit_code == 0
+    output = capsys.readouterr().out
+    assert "2 gold questions" in output
+    assert re.search(r"Hit@1 +Hit@5 +Hit@10 +MRR +Hit@5 +MRR", output), output
+    # The whole test corpus is 3 chunks, so every answer is somewhere in the top 10.
+    assert re.search(rf"^{re.escape(QWEN)} +.* 1\.00 ", output, re.MULTILINE), output
+    assert re.search(r"^good-will +\d \(\d\)$", output, re.MULTILINE), output
+    assert re.search(r"^state-of-nature +\d \(\d\)$", output, re.MULTILINE), output
+
+
+def test_evaluate_compares_models_on_their_own_indexes(
+    index_manifest: Path, gold: Path, settings: Settings, capsys: pytest.CaptureFixture[str]
+) -> None:  # 17.2
+    server = FakeOllamaServer(models=[QWEN, GEMMA])
+    for model in (QWEN, GEMMA):
+        _index(index_manifest, _with_model(settings, model), server)
+    capsys.readouterr()
+    server.requests.clear()
+
+    exit_code = _evaluate(gold, settings, server, QWEN, GEMMA)
+
+    assert exit_code == 0
+    assert {request["model"] for request in server.requests} == {QWEN, GEMMA}
+    output = capsys.readouterr().out
+    assert re.search(rf"^question +{re.escape(QWEN)} +{re.escape(GEMMA)}$", output, re.MULTILINE)
+    assert re.search(r"^good-will +\d \(\d\) +\d \(\d\)$", output, re.MULTILINE), output
+
+
+def test_evaluate_a_model_without_an_index_says_how_to_build_it(
+    index_manifest: Path, gold: Path, settings: Settings, capsys: pytest.CaptureFixture[str]
+) -> None:  # 17.3
+    server = FakeOllamaServer(models=[QWEN, GEMMA])
+    _index(index_manifest, settings, server)  # only the default model is indexed
+
+    exit_code = _evaluate(gold, settings, server, QWEN, GEMMA)
+
+    assert exit_code == 1
+    error = capsys.readouterr().err
+    assert error.startswith("error: ")
+    assert f"APORIA_EMBEDDING__MODEL={GEMMA} aporia-rag index" in error
+    assert len(error.strip().splitlines()) == 1
+
+
+def test_evaluate_releases_every_models_connections(
+    index_manifest: Path, gold: Path, settings: Settings
+) -> None:  # 17.4
+    for model in (QWEN, GEMMA):
+        _index(index_manifest, _with_model(settings, model), FakeOllamaServer(models=[model]))
+    server = FakeOllamaServer(models=[QWEN, GEMMA])
+
+    _evaluate(gold, settings, server, QWEN, GEMMA)
+
+    assert server.transport.closes == 2  # one embedder client per model

@@ -3,6 +3,7 @@
     aporia-rag fetch                 download the corpus into data/raw
     aporia-rag index [--rebuild]     embed the corpus into the vector index
     aporia-rag search QUESTION       show the passages retrieval finds for a question
+    aporia-rag evaluate [--model M]  measure retrieval on the gold questions
 
 Each command parses its arguments, asks the `Container` for the components
 it needs, and prints. Expected failures (Ollama not running, a model not
@@ -21,6 +22,14 @@ import httpx
 from aporia_rag.bootstrap import Container
 from aporia_rag.config import Settings, load_settings
 from aporia_rag.domain.errors import AporiaError
+from aporia_rag.evaluation.gold import GoldSet, load_gold_set
+from aporia_rag.evaluation.retrieval import (
+    DEPTH,
+    RetrievalReport,
+    evaluate_retrieval,
+    hit_rate,
+    mean_reciprocal_rank,
+)
 from aporia_rag.indexing.indexer import WorkProgress
 from aporia_rag.ingestion.corpus import WorkSpec, load_manifest
 from aporia_rag.ingestion.gutenberg import (
@@ -120,6 +129,29 @@ def _parser() -> argparse.ArgumentParser:
     )
     _add_manifest_option(search)
     search.set_defaults(run=_search)
+
+    evaluate = commands.add_parser(
+        "evaluate",
+        help="measure retrieval on the gold questions (Hit@k, MRR)",
+        description=(
+            f"Search every gold question for the top {DEPTH} chunks and report where the "
+            "evidence is found. Each model is evaluated on its own index, which must exist."
+        ),
+    )
+    evaluate.add_argument(
+        "--model",
+        action="append",
+        dest="models",
+        metavar="MODEL",
+        help="embedding model to evaluate; repeat to compare (default: the configured model)",
+    )
+    evaluate.add_argument(
+        "--gold",
+        type=Path,
+        default=None,
+        help="gold question set TOML file (default: the packaged set)",
+    )
+    evaluate.set_defaults(run=_evaluate)
     return parser
 
 
@@ -201,10 +233,7 @@ def _print_progress(progress: WorkProgress) -> None:
 def _search(args: argparse.Namespace, container: Container) -> int:
     works = load_manifest(args.manifest).works
     filters = None if args.author is None else {"author": _resolve_author(args.author, works)}
-    if container.vector_store.count() == 0:
-        raise CommandError(
-            f"the index for {container.embedder.space.id} is empty; run `aporia-rag index` first"
-        )
+    _require_index(container)
     results = container.retriever.search(args.question, k=args.k, filters=filters)
     for rank, result in enumerate(results, start=1):
         chunk = result.chunk
@@ -228,3 +257,85 @@ def _snippet(text: str) -> str:
     if len(flat) <= _SNIPPET_LENGTH:
         return flat
     return flat[:_SNIPPET_LENGTH].rsplit(" ", 1)[0] + " ..."
+
+
+def _require_index(container: Container) -> None:
+    """Refuse to search an empty index: every query would quietly find nothing."""
+    if container.vector_store.count() == 0:
+        space = container.embedder.space
+        raise CommandError(
+            f"the index for {space.id} is empty; build it first: "
+            f"`APORIA_EMBEDDING__MODEL={space.model} aporia-rag index`"
+        )
+
+
+# --------------------------------------------------------------------------
+# evaluate
+# --------------------------------------------------------------------------
+
+_METRICS = ("Hit@1", "Hit@5", f"Hit@{DEPTH}", "MRR", "Hit@5", "MRR")
+_COLUMN = 7  # width of one metric column
+
+
+def _evaluate(args: argparse.Namespace, container: Container) -> int:
+    gold = load_gold_set(args.gold)
+    models: list[str] = args.models or [container.settings.embedding.model]
+    reports = {model: _evaluate_model(model, gold, container) for model in models}
+    count = len(gold.questions)
+    print(
+        f"{count} gold questions, top {DEPTH} chunks each "
+        f"(one question is {100 / count:.1f} points)\n"
+    )
+    _print_metrics(reports)
+    print(
+        "\npassage hit: the chunk contains the evidence quote; "
+        "section hit: it only comes from the evidence section\n"
+    )
+    _print_ranks(gold, reports)
+    return 0
+
+
+def _evaluate_model(model: str, gold: GoldSet, container: Container) -> RetrievalReport:
+    """Evaluate one embedding model on its own index, with otherwise the same settings."""
+    settings = container.settings
+    embedding = settings.embedding.model_copy(update={"model": model})
+    model_settings = settings.model_copy(update={"embedding": embedding})
+    with Container(model_settings, transport=container.transport) as model_container:
+        _require_index(model_container)
+        return evaluate_retrieval(model_container.retriever, gold)
+
+
+def _print_metrics(reports: dict[str, RetrievalReport]) -> None:
+    width = max(len("model"), *map(len, reports))
+    passage_width, section_width = 4 * _COLUMN, 2 * _COLUMN
+    labels = f"{'':{width}} {'passage hit':^{passage_width}}{'section hit':^{section_width}}"
+    print(labels.rstrip())
+    print(f"{'model':{width}} " + "".join(f"{name:>{_COLUMN}}" for name in _METRICS))
+    for model, report in reports.items():
+        passage, section = report.passage_ranks, report.section_ranks
+        values = (
+            hit_rate(passage, 1),
+            hit_rate(passage, 5),
+            hit_rate(passage, DEPTH),
+            mean_reciprocal_rank(passage),
+            hit_rate(section, 5),
+            mean_reciprocal_rank(section),
+        )
+        print(f"{model:{width}} " + "".join(f"{value:>{_COLUMN}.2f}" for value in values))
+
+
+def _print_ranks(gold: GoldSet, reports: dict[str, RetrievalReport]) -> None:
+    print(f"rank of the first passage hit (section hit); - means not in the top {DEPTH}")
+    width = max(len("question"), *(len(question.id) for question in gold.questions)) + 2
+    columns = [max(len(model), len("10 (10)")) + 2 for model in reports]
+    header = f"{'question':{width}}" + "".join(
+        f"{model:{column}}" for model, column in zip(reports, columns, strict=True)
+    )
+    print(header.rstrip())
+    for index, question in enumerate(gold.questions):
+        cells = []
+        for report, column in zip(reports.values(), columns, strict=True):
+            result = report.results[index]
+            cell = f"{result.passage_rank or '-'} ({result.section_rank or '-'})"
+            cells.append(f"{cell:{column}}")
+        print(f"{question.id:{width}}{''.join(cells)}".rstrip())
