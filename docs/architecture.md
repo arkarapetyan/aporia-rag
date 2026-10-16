@@ -202,8 +202,8 @@ instead of a vector of half its text.
 ## Evaluation
 
 **Judge retrieval on a gold set, not on single queries.** `evaluation/gold_retrieval.toml` holds
-40 hand-written questions over all 12 works, each with its evidence: a section and a short
-verbatim quote from the answering passage. `aporia-rag evaluate --model A --model B` searches every
+40 hand-written questions over all 12 works, each with its evidence: every passage known to answer
+it, as a section and a short verbatim quote. `aporia-rag evaluate --model A --model B` searches every
 question in each model's own index and reports Hit@1/5/10 and MRR@10 at two levels: a *passage
 hit* (the chunk contains the quote: what the generator needs) and a *section hit* (right section,
 maybe the wrong paragraph). The gap between the two levels separates chunk dilution from not
@@ -212,6 +212,15 @@ understanding the question.
 **Quotes, not chunk ids.** Matching the quote keeps the gold set valid when chunking changes, so
 the same questions can later compare chunk sizes. An integration test checks that every quote
 sits inside a chunk of its section, since an unfindable quote would silently lower every score.
+
+**Every answering passage, not just the best one.** An answering passage missing from the gold
+set counts as a miss when it is retrieved, so passage scores are only a lower bound until the
+evidence is complete (in information retrieval: *incomplete relevance judgments*). The first
+bake-off showed it: the right section in the top 5 for 88% of questions, the quoted passage for
+40%. Reading the corpus for every other passage that answers each question found 39 more (84 in
+all), including two errors: Hume poses the problem of induction in Section IV, and one Descartes
+quote sat in a fragment that does not say what it is about. Passages a model finds in words no
+search anticipated are found by reading its retrieved chunks (*pooling*, as in TREC).
 
 **Questions in a reader's words.** The questions avoid the source's wording, so they measure
 meaning rather than word overlap: a bag-of-words baseline (feature hashing, the test embedder)

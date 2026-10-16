@@ -1,11 +1,21 @@
 # Gold questions for evaluating retrieval (the embedding bake-off).
 #
 # Each question lists the evidence a good retriever should find: the section
-# (document id) and a short verbatim quote from the passage that answers it.
+# (document id) and a short verbatim quote from a passage that answers it.
 # A retrieved chunk is a *passage hit* when it comes from that section and
 # contains the quote (whitespace-insensitive), and a *section hit* when it
-# merely comes from that section. A question may list several pieces of
-# evidence; finding any one of them counts.
+# merely comes from that section. Finding any one piece of evidence counts.
+#
+# Evidence lists *every* passage known to answer the question, not just the
+# best one: a passage left out counts as a miss when it is retrieved, so the
+# passage-level scores would understate retrieval. Revision history:
+# - 2026-10-12: one passage per question, 45 in all.
+# - 2026-10-14: corpus searched for every other answering passage, read and
+#   judged; 39 passages added, 84 in all. Also fixed two errors: Hume poses the problem
+#   of induction in Section IV (only Section V was accepted), and the
+#   Descartes quote sat in a fragment that does not say what it is about.
+# A passage a model retrieves that answers in words no search anticipated
+# still counts as a miss until it is added here.
 #
 # Writing rules, so the set measures meaning rather than word overlap:
 # - Ask as a reader would, in modern English, not in the source's wording.
@@ -21,6 +31,12 @@ question = "Who argued that justice is simply whatever benefits those in power?"
 [[questions.evidence]]
 document = "plato-republic/book-i"
 quote = "justice is nothing else than the interest of the stronger"
+[[questions.evidence]]
+document = "plato-republic/book-i"
+quote = "Justice, as you say, is the interest of the stronger. What, Thrasymachus, is the meaning of this?"
+[[questions.evidence]]
+document = "plato-republic/book-i"
+quote = "everywhere there is one principle of justice, which is the interest of the stronger"
 
 [[questions]]
 id = "plato-invisible-ring"
@@ -38,6 +54,9 @@ question = "In Plato's ideal state, what does justice consist in?"
 [[questions.evidence]]
 document = "plato-republic/book-iv"
 quote = "one man should practise one thing only"
+[[questions.evidence]]
+document = "plato-republic/book-iv"
+quote = "justice was doing one’s own business, and not being a busybody"
 
 [[questions]]
 id = "plato-philosopher-rulers"
@@ -45,6 +64,15 @@ question = "Who does Socrates think should govern the city if it is ever to be w
 [[questions.evidence]]
 document = "plato-republic/book-v"
 quote = "Until philosophers are kings"
+[[questions.evidence]]
+document = "plato-republic/book-vi"
+quote = "cities will not cease from evil until philosophers rule in them"
+[[questions.evidence]]
+document = "plato-republic/book-vi"
+quote = "until philosophers bear rule, States and individuals will have no rest from evil"
+[[questions.evidence]]
+document = "plato-republic/book-vii"
+quote = "there will be no injustice in compelling our philosophers to have a care and providence of others"
 
 [[questions]]
 id = "plato-cave"
@@ -87,6 +115,9 @@ question = "Can a dishonourable act ever really be in our interest?"
 [[questions.evidence]]
 document = "cicero-de-officiis/book-iii"
 quote = "what is morally wrong can never be expedient"
+[[questions.evidence]]
+document = "cicero-de-officiis/book-iii"
+quote = "nothing can be expedient that is not morally right"
 
 [[questions]]
 id = "cicero-sources-of-duty"
@@ -103,6 +134,9 @@ question = "If the gods care for us, why do misfortunes fall on good people?"
 [[questions.evidence]]
 document = "seneca-minor-dialogues/of-providence"
 quote = "Why do many things turn out badly for good men?"
+[[questions.evidence]]
+document = "seneca-minor-dialogues/of-providence"
+quote = "why does God permit evil to happen to good men?"
 
 [[questions]]
 id = "seneca-anger-madness"
@@ -110,6 +144,9 @@ question = "Why do some philosophers compare an angry man to someone who has los
 [[questions.evidence]]
 document = "seneca-minor-dialogues/of-anger-book-i"
 quote = "called anger a short madness"
+[[questions.evidence]]
+document = "seneca-minor-dialogues/of-anger-book-i"
+quote = "they whom anger possesses are not sane"
 
 [[questions]]
 id = "seneca-time-wasted"
@@ -124,6 +161,9 @@ question = "According to Seneca, what does living happily require?"
 [[questions.evidence]]
 document = "seneca-minor-dialogues/of-a-happy-life"
 quote = "To live happily, then, is the same thing as to live according to Nature"
+[[questions.evidence]]
+document = "seneca-minor-dialogues/of-a-happy-life"
+quote = "A happy life, therefore, is one which is in accordance with its own nature"
 
 # --- Kant, Fundamental Principles of the Metaphysic of Morals ---------------
 
@@ -133,6 +173,9 @@ question = "Is there anything that is good in itself, whatever its results?"
 [[questions.evidence]]
 document = "kant-metaphysic-of-morals/first-section"
 quote = "which can be called good, without qualification, except a good will"
+[[questions.evidence]]
+document = "kant-metaphysic-of-morals/first-section"
+quote = "A good will is good not because of what it performs or effects"
 
 [[questions]]
 id = "kant-universal-law"
@@ -140,6 +183,15 @@ question = "How can I test whether the principle behind my action is morally acc
 [[questions.evidence]]
 document = "kant-metaphysic-of-morals/second-section"
 quote = "Act only on that maxim whereby thou canst at the same time will that it should become a universal law"
+[[questions.evidence]]
+document = "kant-metaphysic-of-morals/first-section"
+quote = "I am never to act otherwise than so that I could also will that my maxim should become a universal law"
+[[questions.evidence]]
+document = "kant-metaphysic-of-morals/second-section"
+quote = "Act according to a maxim which can at the same time make itself a universal law"
+[[questions.evidence]]
+document = "kant-metaphysic-of-morals/second-section"
+quote = "Act always on such a maxim as thou canst at the same time will to be a universal law"
 
 [[questions]]
 id = "kant-persons-as-ends"
@@ -147,6 +199,12 @@ question = "Is it ever right to use another person merely as a tool for your own
 [[questions.evidence]]
 document = "kant-metaphysic-of-morals/second-section"
 quote = "in every case as an end withal, never as means only"
+[[questions.evidence]]
+document = "kant-metaphysic-of-morals/second-section"
+quote = "any rational being exists as an end in himself, not merely as a means"
+[[questions.evidence]]
+document = "kant-metaphysic-of-morals/second-section"
+quote = "a man is not a thing, that is to say, something which can be used merely as means"
 
 # --- Mill, Utilitarianism --------------------------------------------------
 
@@ -156,6 +214,9 @@ question = "What makes an action right or wrong for a utilitarian?"
 [[questions.evidence]]
 document = "mill-utilitarianism/chapter-ii"
 quote = "actions are right in proportion as they tend to promote happiness"
+[[questions.evidence]]
+document = "mill-utilitarianism/chapter-ii"
+quote = "the happiness which forms the utilitarian standard of what is right in conduct, is not the agent's own happiness, but that of all concerned"
 
 [[questions]]
 id = "mill-higher-pleasures"
@@ -180,6 +241,12 @@ question = "How does Mill reconcile our strong feeling of justice with utilitari
 [[questions.evidence]]
 document = "mill-utilitarianism/chapter-v"
 quote = "Justice is a name for certain classes of moral rules"
+[[questions.evidence]]
+document = "mill-utilitarianism/chapter-v"
+quote = "the justice which is grounded on utility to be the chief part, and incomparably the most sacred and binding part, of all morality"
+[[questions.evidence]]
+document = "mill-utilitarianism/chapter-v"
+quote = "justice is a name for certain moral requirements, which, regarded collectively, stand higher in the scale of social utility"
 
 # --- Nietzsche, The Genealogy of Morals -------------------------------------
 
@@ -189,6 +256,9 @@ question = "Where did the original judgment 'good' come from, according to Nietz
 [[questions.evidence]]
 document = "nietzsche-genealogy-of-morals/first-essay-good-and-evil-good-and-bad"
 quote = "It was out of this pathos of distance that they first arrogated the right to create values"
+[[questions.evidence]]
+document = "nietzsche-genealogy-of-morals/first-essay-good-and-evil-good-and-bad"
+quote = 'the judgment "good" did not originate among those to whom goodness was shown'
 
 [[questions]]
 id = "nietzsche-resentment-creates-values"
@@ -203,6 +273,9 @@ question = "How does Nietzsche explain the origin of the bad conscience?"
 [[questions.evidence]]
 document = "nietzsche-genealogy-of-morals/second-essay-guilt-bad-conscience-and-the-like"
 quote = "All instincts which do not find a vent without, turn inwards"
+[[questions.evidence]]
+document = "nietzsche-genealogy-of-morals/second-essay-guilt-bad-conscience-and-the-like"
+quote = "I regard the bad conscience as the serious illness which man was bound to contract"
 
 # --- Descartes, Discourse on the Method -----------------------------------
 
@@ -225,7 +298,16 @@ id = "descartes-provisional-morality"
 question = "How did Descartes decide to live while he was still doubting everything?"
 [[questions.evidence]]
 document = "descartes-discourse-on-method/part-iii"
+quote = "I formed a provisory code of morals, composed of three or four maxims"
+[[questions.evidence]]
+document = "descartes-discourse-on-method/part-iii"
 quote = "The first was to obey the laws and customs of my country"
+[[questions.evidence]]
+document = "descartes-discourse-on-method/part-iii"
+quote = "My second maxim was to be as firm and resolute in my actions as I was able"
+[[questions.evidence]]
+document = "descartes-discourse-on-method/part-iii"
+quote = "My third maxim was to endeavor always to conquer myself rather than fortune"
 
 # --- Hume, An Enquiry Concerning Human Understanding -----------------------
 
@@ -242,6 +324,12 @@ question = "Why do we expect the future to resemble the past?"
 [[questions.evidence]]
 document = "hume-enquiry/section-v-part-i"
 quote = "Custom, then, is the great guide of human life"
+[[questions.evidence]]
+document = "hume-enquiry/section-iv-part-ii"
+quote = "all our experimental conclusions proceed upon the supposition that the future will be conformable to the past"
+[[questions.evidence]]
+document = "hume-enquiry/section-iv-part-ii"
+quote = "all inferences from experience suppose, as their foundation, that the future will resemble the past"
 
 [[questions]]
 id = "hume-miracles"
@@ -249,6 +337,9 @@ question = "Can eyewitness testimony ever make it reasonable to believe that a m
 [[questions.evidence]]
 document = "hume-enquiry/section-x-part-i"
 quote = "A miracle is a violation of the laws of nature"
+[[questions.evidence]]
+document = "hume-enquiry/section-x-part-i"
+quote = "no testimony is sufficient to establish a miracle, unless the testimony be of such a kind, that its falsehood would be more miraculous"
 
 # --- Schopenhauer, The World as Will and Idea, Vol. 1 -----------------------
 
@@ -258,6 +349,12 @@ question = "Does the world exist only as it appears to a knowing subject?"
 [[questions.evidence]]
 document = "schopenhauer-world-as-will-vol1/first-book-the-world-as-idea"
 quote = "this is a truth which holds good for everything that lives and knows"
+[[questions.evidence]]
+document = "schopenhauer-world-as-will-vol1/first-book-the-world-as-idea"
+quote = "the world which surrounds him is there only as idea"
+[[questions.evidence]]
+document = "schopenhauer-world-as-will-vol1/first-book-the-world-as-idea"
+quote = "no object without a subject"
 
 [[questions]]
 id = "schopenhauer-thing-in-itself"
@@ -265,6 +362,9 @@ question = "What lies behind all appearances, according to Schopenhauer?"
 [[questions.evidence]]
 document = "schopenhauer-world-as-will-vol1/second-book-the-world-as-will"
 quote = "What is the thing-in-itself? The will, we have answered"
+[[questions.evidence]]
+document = "schopenhauer-world-as-will-vol1/second-book-the-world-as-will"
+quote = "If, now, this thing-in-itself is the will, as I believe I have fully and convincingly proved it to be"
 
 [[questions]]
 id = "schopenhauer-music"
@@ -279,6 +379,9 @@ question = "Why can human life never find lasting satisfaction?"
 [[questions.evidence]]
 document = "schopenhauer-world-as-will-vol1/fourth-book-the-world-as-will"
 quote = "its life swings like a pendulum backwards and forwards between pain and ennui"
+[[questions.evidence]]
+document = "schopenhauer-world-as-will-vol1/fourth-book-the-world-as-will"
+quote = "no satisfaction is lasting, rather it is always merely the starting-point of a new effort"
 
 # --- Hobbes, Leviathan (1651 spelling) -------------------------------------
 
@@ -291,6 +394,12 @@ quote = "the life of man, solitary, poore, nasty, brutish, and short"
 [[questions.evidence]]
 document = "hobbes-leviathan/part-i-of-man-chapter-xiii-of-the-naturall-condition-of-mankind-as-concerning-their-felicity-and-misery"
 quote = "such a warre, as is of every man, against every man"
+[[questions.evidence]]
+document = "hobbes-leviathan/part-i-of-man-chapter-xiii-of-the-naturall-condition-of-mankind-as-concerning-their-felicity-and-misery"
+quote = "Where there is no common Power, there is no Law: where no Law, no Injustice"
+[[questions.evidence]]
+document = "hobbes-leviathan/part-i-of-man-chapter-xiii-of-the-naturall-condition-of-mankind-as-concerning-their-felicity-and-misery"
+quote = "men have no pleasure, (but on the contrary a great deale of griefe) in keeping company, where there is no power able to over-awe them all"
 
 [[questions]]
 id = "hobbes-first-law-of-nature"
@@ -305,6 +414,12 @@ question = "Why do people hand over their power to a single sovereign?"
 [[questions.evidence]]
 document = "hobbes-leviathan/part-ii-of-common-wealth-chapter-xvii-of-the-causes-generation-and-definition-of-a-common-wealth"
 quote = "to conferre all their power and strength upon one Man, or upon one Assembly of men"
+[[questions.evidence]]
+document = "hobbes-leviathan/part-ii-of-common-wealth-chapter-xvii-of-the-causes-generation-and-definition-of-a-common-wealth"
+quote = "is the foresight of their own preservation, and of a more contented life thereby"
+[[questions.evidence]]
+document = "hobbes-leviathan/part-ii-of-common-wealth-chapter-xvii-of-the-causes-generation-and-definition-of-a-common-wealth"
+quote = "Covenants, without the Sword, are but Words, and of no strength to secure a man at all"
 
 # --- Mill, On Liberty ------------------------------------------------------
 
@@ -314,6 +429,12 @@ question = "When is society entitled to restrict what an individual does?"
 [[questions.evidence]]
 document = "mill-on-liberty/chapter-i"
 quote = "the sole end for which mankind are warranted, individually or collectively, in interfering with the liberty of action"
+[[questions.evidence]]
+document = "mill-on-liberty/chapter-iv"
+quote = "As soon as any part of a person's conduct affects prejudicially the interests of others, society has jurisdiction over it"
+[[questions.evidence]]
+document = "mill-on-liberty/chapter-v"
+quote = "the individual is not accountable to society for his actions, in so far as these concern the interests of no person but himself"
 
 [[questions]]
 id = "mill-silencing-opinions"
@@ -331,3 +452,9 @@ question = "Why should people be free to live in unconventional ways?"
 [[questions.evidence]]
 document = "mill-on-liberty/chapter-iii"
 quote = "Human nature is not a machine to be built after a model"
+[[questions.evidence]]
+document = "mill-on-liberty/chapter-iii"
+quote = "has no need of any other faculty than the ape-like one of imitation"
+[[questions.evidence]]
+document = "mill-on-liberty/chapter-iii"
+quote = "Precisely because the tyranny of opinion is such as to make eccentricity a reproach"
