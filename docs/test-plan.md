@@ -499,6 +499,13 @@ The evaluation depends on a small `Searcher` protocol (`search(question, *, k)`)
 it, which `Retriever` satisfies structurally; so `evaluation` imports neither `retrieval` nor any
 provider, and later the corrective graph can be measured the same way.
 
+**Pooling.** An answering passage missing from the gold set counts as a miss, so the evidence must
+list every passage that answers a question. Keyword searches of the corpus find the passages that
+share words with what was searched for; the passages a model finds in other words are found by
+reading what it retrieved. `evaluate --dump` writes exactly that: every retrieved chunk with its
+verdicts, so the non-hits can be judged and the answering ones added as evidence (as in TREC, where
+the union of all systems' top results is judged).
+
 ## Component 16: Retrieval evaluation (`aporia_rag.evaluation`)
 
 | # | Test |
@@ -510,6 +517,8 @@ provider, and later the corrective graph can be measured the same way.
 | 16.5 | A question with several pieces of evidence is hit by any one of them |
 | 16.6 | `hit_rate(ranks, k)` is the share of ranks within k; `mean_reciprocal_rank(ranks)` averages 1/rank with misses counting 0 |
 | 16.7 | `evaluate_retrieval` asks the searcher once per question for the top 10 and reports, in gold-set order, the rank of the first passage hit and of the first section hit (`None` for a miss) |
+| 16.8 | The report keeps every question's retrieved chunks, in rank order, so what was judged can be inspected |
+| 16.9 | `write_retrievals` writes one JSON line per model, question and retrieved chunk: the question, rank, score, chunk id, citation, chunk text, and whether the chunk is a passage hit and a section hit |
 
 ## Component 17: `evaluate` command (`aporia_rag.cli`)
 
@@ -519,6 +528,7 @@ provider, and later the corrective graph can be measured the same way.
 | 17.2 | `evaluate --model A --model B` evaluates each model on its own index (built with that model) and prints one column per model |
 | 17.3 | A model whose index is empty is a one-line error naming the model and the command that indexes it |
 | 17.4 | `evaluate` releases the connections of every model it evaluated |
+| 17.5 | `evaluate --dump PATH` also writes every model's retrieved chunks to PATH (16.9), creating its folder, and says where; the printed report is unchanged |
 
 ## Architecture rules (`tests/unit/test_architecture.py`, run in the default suite)
 

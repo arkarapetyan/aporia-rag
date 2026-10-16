@@ -1,8 +1,11 @@
-"""Tests for aporia_rag.evaluation.retrieval: relevance, metrics, the runner (test plan: 16.4-16.7).
+"""Tests for aporia_rag.evaluation.retrieval: relevance, metrics, the runner (test plan: 16.4-16.9).
 
 The runner is tested with a scripted `Searcher`, so each test states exactly
 which chunks come back, in which order, for which question.
 """
+
+import json
+from pathlib import Path
 
 import pytest
 
@@ -13,6 +16,7 @@ from aporia_rag.evaluation.retrieval import (
     evaluate_retrieval,
     hit_rate,
     mean_reciprocal_rank,
+    write_retrievals,
 )
 from support.builders import make_chunk
 
@@ -70,7 +74,11 @@ class ScriptedSearcher:
     def search(self, question: str, *, k: int) -> list[RetrievedChunk]:
         self.calls.append((question, k))
         chunks = self.results.get(question, [])[:k]
-        return [RetrievedChunk(chunk=chunk, score=1.0) for chunk in chunks]
+        return [RetrievedChunk(chunk=c, score=_score(rank)) for rank, c in enumerate(chunks)]
+
+
+def _score(rank: int) -> float:
+    return 0.9 - rank / 10  # best first, as from a real store
 
 
 def _question(question_id: str, evidence: Evidence = GOOD_WILL) -> GoldQuestion:
@@ -89,11 +97,11 @@ def test_reports_the_first_passage_and_section_hit_of_every_question() -> None: 
 
     report = evaluate_retrieval(searcher, gold)
 
-    assert report.results == (
-        QuestionResult(question_id="found", passage_rank=2, section_rank=1),
-        QuestionResult(question_id="missed", passage_rank=None, section_rank=None),
-        QuestionResult(question_id="near", passage_rank=None, section_rank=3),
-    )
+    assert [_ranks(result) for result in report.results] == [
+        ("found", 2, 1),
+        ("missed", None, None),
+        ("near", None, 3),
+    ]
     assert searcher.calls == [
         ("Question found?", 10),
         ("Question missed?", 10),
@@ -101,3 +109,52 @@ def test_reports_the_first_passage_and_section_hit_of_every_question() -> None: 
     ]
     assert report.passage_ranks == (2, None, None)
     assert report.section_ranks == (1, None, 3)
+
+
+def _ranks(result: QuestionResult) -> tuple[str, int | None, int | None]:
+    return result.question_id, result.passage_rank, result.section_rank
+
+
+def test_the_report_keeps_what_was_retrieved() -> None:  # 16.8
+    gold = GoldSet(questions=[_question("found"), _question("missed")])
+    searcher = ScriptedSearcher({"Question found?": [SAME_SECTION, ANSWER]})
+
+    found, missed = evaluate_retrieval(searcher, gold).results
+
+    assert [retrieved.chunk for retrieved in found.retrieved] == [SAME_SECTION, ANSWER]
+    assert [retrieved.score for retrieved in found.retrieved] == [0.9, 0.8]
+    assert missed.retrieved == ()
+
+
+def test_retrievals_are_written_one_json_line_per_chunk(tmp_path: Path) -> None:  # 16.9
+    gold = GoldSet(questions=[_question("found"), _question("missed")])
+    reports = {
+        "model-a": evaluate_retrieval(
+            ScriptedSearcher({"Question found?": [SAME_SECTION, ANSWER]}), gold
+        ),
+        "model-b": evaluate_retrieval(ScriptedSearcher({"Question missed?": [ELSEWHERE]}), gold),
+    }
+    path = tmp_path / "retrievals.jsonl"
+
+    write_retrievals(path, reports, gold)
+
+    records = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+    assert [(r["model"], r["question_id"], r["rank"]) for r in records] == [
+        ("model-a", "found", 1),
+        ("model-a", "found", 2),
+        ("model-b", "missed", 1),
+    ]
+    assert records[1] == {
+        "model": "model-a",
+        "question_id": "found",
+        "question": "Question found?",
+        "rank": 2,
+        "score": 0.8,
+        "chunk_id": ANSWER.id,
+        "citation": ANSWER.metadata.citation,
+        "passage_hit": True,
+        "section_hit": True,
+        "text": ANSWER.text,
+    }
+    assert (records[0]["passage_hit"], records[0]["section_hit"]) == (False, True)
+    assert (records[2]["passage_hit"], records[2]["section_hit"]) == (False, False)

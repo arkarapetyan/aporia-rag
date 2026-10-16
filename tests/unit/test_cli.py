@@ -6,6 +6,7 @@ model from memory, and the injected settings, which point the corpus and
 the index at a temporary directory.
 """
 
+import json
 import re
 from pathlib import Path
 
@@ -488,3 +489,35 @@ def test_evaluate_releases_every_models_connections(
     _evaluate(gold, settings, server, QWEN, GEMMA)
 
     assert server.transport.closes == 2  # one embedder client per model
+
+
+def test_evaluate_dump_writes_every_retrieved_chunk(
+    index_manifest: Path,
+    gold: Path,
+    settings: Settings,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:  # 17.5
+    server = FakeOllamaServer()
+    _index(index_manifest, settings, server)
+    capsys.readouterr()
+    _evaluate(gold, settings, server)
+    report = capsys.readouterr().out
+    dump = tmp_path / "eval" / "retrievals.jsonl"  # the folder is created
+
+    exit_code = main(
+        ["evaluate", "--gold", str(gold), "--dump", str(dump)],
+        transport=server.transport,
+        settings=settings,
+    )
+
+    assert exit_code == 0
+    output = capsys.readouterr().out
+    assert output.startswith(report)  # the same report, then where the dump went
+    assert str(dump) in output.removeprefix(report)
+    records = [json.loads(line) for line in dump.read_text(encoding="utf-8").splitlines()]
+    # 2 questions x all 3 chunks of the test corpus (fewer than the top 10)
+    assert len(records) == 6
+    assert {record["model"] for record in records} == {QWEN}
+    assert {record["question_id"] for record in records} == {"good-will", "state-of-nature"}
+    assert any(record["passage_hit"] for record in records)

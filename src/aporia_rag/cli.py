@@ -3,7 +3,7 @@
     aporia-rag fetch                 download the corpus into data/raw
     aporia-rag index [--rebuild]     embed the corpus into the vector index
     aporia-rag search QUESTION       show the passages retrieval finds for a question
-    aporia-rag evaluate [--model M]  measure retrieval on the gold questions
+    aporia-rag evaluate [--model M]  measure retrieval on the gold questions [--dump PATH]
 
 Each command parses its arguments, asks the `Container` for the components
 it needs, and prints. Expected failures (Ollama not running, a model not
@@ -29,6 +29,7 @@ from aporia_rag.evaluation.retrieval import (
     evaluate_retrieval,
     hit_rate,
     mean_reciprocal_rank,
+    write_retrievals,
 )
 from aporia_rag.indexing.indexer import WorkProgress
 from aporia_rag.ingestion.corpus import WorkSpec, load_manifest
@@ -150,6 +151,13 @@ def _parser() -> argparse.ArgumentParser:
         type=Path,
         default=None,
         help="gold question set TOML file (default: the packaged set)",
+    )
+    evaluate.add_argument(
+        "--dump",
+        type=Path,
+        default=None,
+        metavar="PATH",
+        help="also write every retrieved chunk, with its verdicts, to PATH (JSON Lines)",
     )
     evaluate.set_defaults(run=_evaluate)
     return parser
@@ -292,6 +300,9 @@ def _evaluate(args: argparse.Namespace, container: Container) -> int:
         "section hit: it only comes from the evidence section\n"
     )
     _print_ranks(gold, reports)
+    if args.dump is not None:
+        write_retrievals(args.dump, reports, gold)
+        print(f"\nretrieved chunks written to {args.dump}")
     return 0
 
 

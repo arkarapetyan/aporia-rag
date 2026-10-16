@@ -220,7 +220,8 @@ bake-off showed it: the right section in the top 5 for 88% of questions, the quo
 40%. Reading the corpus for every other passage that answers each question found 39 more (84 in
 all), including two errors: Hume poses the problem of induction in Section IV, and one Descartes
 quote sat in a fragment that does not say what it is about. Passages a model finds in words no
-search anticipated are found by reading its retrieved chunks (*pooling*, as in TREC).
+search anticipated are found by reading its retrieved chunks (*pooling*, as in TREC):
+`evaluate --dump data/eval/retrievals.jsonl` saves every retrieved chunk with its verdicts.
 
 **Questions in a reader's words.** The questions avoid the source's wording, so they measure
 meaning rather than word overlap: a bag-of-words baseline (feature hashing, the test embedder)

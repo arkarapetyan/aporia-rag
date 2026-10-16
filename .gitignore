@@ -12,10 +12,11 @@ wheels/
 # Local configuration / secrets
 .env
 
-# Data: the downloaded corpus and the vector index are both reproducible
-# from code, so neither is committed.
+# Data: the downloaded corpus, the vector index and evaluation dumps are all
+# reproducible from code, so none of them are committed.
 data/raw/*
 data/index/
+data/eval/
 !data/raw/.gitkeep
 
 # Tool caches and reports

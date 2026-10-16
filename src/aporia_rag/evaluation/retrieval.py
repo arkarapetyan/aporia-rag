@@ -10,13 +10,20 @@ metric is then computed from those ranks:
 - MRR: the mean of 1/rank over all questions, a miss counting 0. It
   rewards ranking the answer first over merely including it.
 
+The report also keeps what was retrieved, and `write_retrievals` saves it
+for reading: a retrieved chunk that answers the question but is not in the
+gold set counts as a miss, and reading the misses is how such passages are
+found and added (pooling).
+
 The evaluation needs only something that can search, the `Searcher`
 protocol below, which `Retriever` satisfies; later, the corrective graph
 can be measured the same way.
 """
 
-from collections.abc import Callable, Sequence
+import json
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Final, Protocol
 
 from aporia_rag.domain.models import Chunk, RetrievedChunk
@@ -36,6 +43,7 @@ class QuestionResult:
     question_id: str
     passage_rank: Rank
     section_rank: Rank
+    retrieved: tuple[RetrievedChunk, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,15 +63,46 @@ def evaluate_retrieval(searcher: Searcher, gold: GoldSet) -> RetrievalReport:
     """Search every gold question and report where its first hits are."""
     results: list[QuestionResult] = []
     for question in gold.questions:
-        chunks = [result.chunk for result in searcher.search(question.question, k=DEPTH)]
+        retrieved = tuple(searcher.search(question.question, k=DEPTH))
+        chunks = [result.chunk for result in retrieved]
         results.append(
             QuestionResult(
                 question_id=question.id,
                 passage_rank=_first_rank(chunks, question.is_passage_hit),
                 section_rank=_first_rank(chunks, question.is_section_hit),
+                retrieved=retrieved,
             )
         )
     return RetrievalReport(tuple(results))
+
+
+def write_retrievals(path: Path, reports: Mapping[str, RetrievalReport], gold: GoldSet) -> None:
+    """Save every retrieved chunk, one JSON object per line, with its verdicts.
+
+    `reports` maps each model (or any other name for a setup) to its report
+    on `gold`.
+    """
+    questions = {question.id: question for question in gold.questions}
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as file:
+        for model, report in reports.items():
+            for result in report.results:
+                question = questions[result.question_id]
+                for rank, retrieved in enumerate(result.retrieved, start=1):
+                    chunk = retrieved.chunk
+                    record = {
+                        "model": model,
+                        "question_id": question.id,
+                        "question": question.question,
+                        "rank": rank,
+                        "score": retrieved.score,
+                        "chunk_id": chunk.id,
+                        "citation": chunk.metadata.citation,
+                        "passage_hit": question.is_passage_hit(chunk),
+                        "section_hit": question.is_section_hit(chunk),
+                        "text": chunk.text,
+                    }
+                    file.write(json.dumps(record, ensure_ascii=False) + "\n")
 
 
 def hit_rate(ranks: Sequence[Rank], k: int) -> float:
