@@ -1,4 +1,4 @@
-"""Tests for aporia_rag.adapters.ollama (test plan: 10.14-10.19).
+"""Tests for aporia_rag.adapters.ollama (test plan: 10.14-10.20 and 18.1-18.5).
 
 The adapter talks to a real `ollama.Client`; only the network underneath it
 is replaced, by `FakeOllamaServer` behind an `httpx.MockTransport`. So these
@@ -9,14 +9,14 @@ import httpx
 import ollama
 import pytest
 
-from aporia_rag.adapters.ollama import OllamaEmbedder
+from aporia_rag.adapters.ollama import OllamaChatModel, OllamaEmbedder
 from aporia_rag.adapters.prompt_formats import QwenInstructFormat
 from aporia_rag.domain.errors import (
     ModelNotAvailableError,
     ProviderError,
     ProviderUnavailableError,
 )
-from aporia_rag.domain.models import EmbeddingSpace, Passage
+from aporia_rag.domain.models import ChatMessage, EmbeddingSpace, Passage
 from support.fakes import FakeOllamaServer, hash_vector, refusing_transport
 
 MODEL = "qwen3-embedding:0.6b"
@@ -135,5 +135,90 @@ def test_close_releases_the_connections() -> None:  # 10.20
     embedder.embed_query("q")
 
     embedder.close()
+
+    assert server.transport.closed
+
+
+# --------------------------------------------------------------------------
+# Chat model (Component 18)
+# --------------------------------------------------------------------------
+
+CHAT_MODEL = "qwen3:14b"
+CONVERSATION = [
+    ChatMessage(role="system", content="Answer from the passages."),
+    ChatMessage(role="user", content="What is the good will?"),
+]
+
+
+def _chat_model(
+    transport: httpx.BaseTransport, *, keep_alive: str | None = None
+) -> OllamaChatModel:
+    client = ollama.Client(host="http://ollama.test:11434", transport=transport)
+    return OllamaChatModel(client, CHAT_MODEL, keep_alive=keep_alive)
+
+
+def test_chat_sends_the_messages_in_order_with_thinking_off() -> None:  # 18.1
+    server = FakeOllamaServer()
+
+    _chat_model(server.transport, keep_alive="10m").chat(CONVERSATION)
+    _chat_model(server.transport).chat(CONVERSATION)
+
+    with_keep_alive, without_keep_alive = server.requests
+    assert with_keep_alive["model"] == CHAT_MODEL
+    assert with_keep_alive["messages"] == [
+        {"role": "system", "content": "Answer from the passages."},
+        {"role": "user", "content": "What is the good will?"},
+    ]
+    assert with_keep_alive["think"] is False  # a thinking model answers directly
+    assert with_keep_alive["stream"] is False
+    assert with_keep_alive["keep_alive"] == "10m"
+    assert "keep_alive" not in without_keep_alive
+
+
+def test_chat_returns_the_reply_without_surrounding_whitespace() -> None:  # 18.2
+    server = FakeOllamaServer(reply="\n  A good will is good in itself [1].  \n")
+
+    assert _chat_model(server.transport).chat(CONVERSATION) == (
+        "A good will is good in itself [1]."
+    )
+
+
+@pytest.mark.parametrize("reply", ["", " \n "], ids=["empty", "whitespace"])
+def test_an_empty_reply_is_a_provider_error(reply: str) -> None:  # 18.3
+    server = FakeOllamaServer(reply=reply)
+
+    with pytest.raises(ProviderError, match=f"{CHAT_MODEL}.*empty"):
+        _chat_model(server.transport).chat(CONVERSATION)
+
+
+@pytest.mark.parametrize(
+    ("transport", "error", "message"),
+    [
+        (
+            FakeOllamaServer(models=[MODEL]).transport,
+            ModelNotAvailableError,
+            f"ollama pull {CHAT_MODEL}",
+        ),
+        (refusing_transport(), ProviderUnavailableError, "Ollama"),
+        (FakeOllamaServer(status=500).transport, ProviderError, "simulated server failure"),
+        (_timing_out_transport(), ProviderError, "timed out"),
+    ],
+    ids=["not-pulled", "not-running", "server-error", "timeout"],
+)
+def test_chat_failures_are_translated_like_the_embedders(
+    transport: httpx.BaseTransport, error: type[ProviderError], message: str
+) -> None:  # 18.4
+    with pytest.raises(ProviderError, match=message) as raised:
+        _chat_model(transport).chat(CONVERSATION)
+
+    assert type(raised.value) is error
+
+
+def test_chat_model_close_releases_the_connections() -> None:  # 18.5
+    server = FakeOllamaServer()
+    model = _chat_model(server.transport)
+    model.chat(CONVERSATION)
+
+    model.close()
 
     assert server.transport.closed

@@ -11,20 +11,35 @@ import httpx
 import pytest
 
 from aporia_rag.adapters.chroma import ChromaVectorStore
-from aporia_rag.adapters.ollama import OllamaEmbedder
+from aporia_rag.adapters.ollama import OllamaChatModel, OllamaEmbedder
 from aporia_rag.bootstrap import (
+    CHAT_MODELS,
     EMBEDDERS,
     VECTOR_STORES,
     Container,
     EmbedderFactory,
     ProviderRegistry,
+    build_chat_model,
     build_embedder,
     build_vector_store,
 )
-from aporia_rag.config import EmbeddingSettings, OllamaSettings, Settings, StorageSettings
+from aporia_rag.config import (
+    ChatSettings,
+    EmbeddingSettings,
+    OllamaSettings,
+    Settings,
+    StorageSettings,
+)
 from aporia_rag.domain.errors import ConfigurationError
-from aporia_rag.domain.models import Document, EmbeddingSpace, SourceMetadata
+from aporia_rag.domain.models import (
+    ChatMessage,
+    Document,
+    EmbeddingSpace,
+    RetrievedChunk,
+    SourceMetadata,
+)
 from aporia_rag.domain.ports import Embedder
+from support.builders import make_chunk
 from support.fakes import FakeOllamaServer, HashingEmbedder
 
 
@@ -108,6 +123,7 @@ def test_registering_a_provider_name_twice_is_an_error() -> None:  # 14.4
 
 def test_default_registries_know_the_local_providers() -> None:  # 14.4
     assert "ollama" in EMBEDDERS.names()
+    assert "ollama" in CHAT_MODELS.names()
     assert "chroma" in VECTOR_STORES.names()
 
 
@@ -195,3 +211,52 @@ def test_a_container_that_built_nothing_closes_nothing(tmp_path: Path) -> None: 
         pass  # e.g. `fetch`: closing must not build the embedder just to close it
 
     assert not server.transport.closed
+
+
+def test_builds_an_ollama_chat_model_from_the_settings() -> None:  # 14.9
+    server = FakeOllamaServer(models=["llama3.1:8b"], reply="Virtue is a mean [1].")
+    settings = Settings(
+        _env_file=None,
+        ollama=OllamaSettings(host="http://gpu-box:11434", keep_alive="30m"),
+        chat=ChatSettings(model="llama3.1:8b"),
+    )
+
+    model = build_chat_model(settings, transport=server.transport)
+    reply = model.chat([ChatMessage(role="user", content="What is virtue?")])
+
+    assert isinstance(model, OllamaChatModel)
+    assert reply == "Virtue is a mean [1]."
+    [request] = server.requests
+    assert (request["model"], request["keep_alive"]) == ("llama3.1:8b", "30m")
+
+
+def test_unknown_chat_provider_lists_the_available_ones() -> None:  # 14.9
+    settings = Settings(_env_file=None, chat=ChatSettings(provider="anthropic"))
+
+    with pytest.raises(ConfigurationError, match=r"chat provider 'anthropic'.*ollama"):
+        build_chat_model(settings)
+
+
+def test_searching_never_builds_a_chat_model(tmp_path: Path) -> None:  # 14.10
+    settings = _container_settings(tmp_path, chat=ChatSettings(provider="anthropic"))
+    container = Container(settings, transport=FakeOllamaServer().transport)
+
+    _ = container.retriever  # an unusable chat provider is no error for `search`...
+    with pytest.raises(ConfigurationError, match="anthropic"):
+        _ = container.generator  # ...only for what answers questions
+
+
+def test_the_generator_uses_the_containers_chat_model_and_it_is_closed(
+    tmp_path: Path,
+) -> None:  # 14.10
+    server = FakeOllamaServer(reply="Only a good will [1].")
+    passage = RetrievedChunk(chunk=make_chunk("kant/first-section#0"), score=0.5)
+
+    with Container(_container_settings(tmp_path), transport=server.transport) as container:
+        assert container.chat_model is container.chat_model
+        assert container.generator is container.generator
+        answer = container.generator.answer("Is anything good without qualification?", [passage])
+        assert not server.transport.closed
+
+    assert answer.text == "Only a good will [1]."
+    assert server.transport.closes == 1  # the chat model's client; nothing else was built

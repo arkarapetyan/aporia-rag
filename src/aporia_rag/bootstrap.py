@@ -1,8 +1,8 @@
 """The composition root: the one place that turns settings into concrete objects.
 
 Everything else depends on the ports in `domain.ports`; only this module
-knows that "ollama" means `OllamaEmbedder` and "chroma" means
-`ChromaVectorStore`. Entry points (the CLI now; a UI later) get their
+knows that "ollama" means `OllamaEmbedder` or `OllamaChatModel` and "chroma"
+means `ChromaVectorStore`. Entry points (the CLI now; a UI later) get their
 components from a `Container` instead of wiring them themselves.
 
 Providers are looked up by name in registries, so adding one (open/closed
@@ -31,12 +31,13 @@ import httpx
 import ollama
 
 from aporia_rag.adapters.chroma import ChromaVectorStore
-from aporia_rag.adapters.ollama import OllamaEmbedder
+from aporia_rag.adapters.ollama import OllamaChatModel, OllamaEmbedder
 from aporia_rag.adapters.prompt_formats import prompt_format_for
 from aporia_rag.config import Settings
 from aporia_rag.domain.errors import ConfigurationError
 from aporia_rag.domain.models import EmbeddingSpace
-from aporia_rag.domain.ports import Chunker, Embedder, VectorStore
+from aporia_rag.domain.ports import ChatModel, Chunker, Embedder, VectorStore
+from aporia_rag.generation.generator import Generator
 from aporia_rag.indexing.indexer import Indexer
 from aporia_rag.ingestion.chunker import RecursiveChunker
 from aporia_rag.retrieval.retriever import Retriever
@@ -45,6 +46,7 @@ from aporia_rag.retrieval.retriever import Retriever
 # real network). Every HTTP-based provider SDK can take one, which is how
 # the tests run whole commands without a network.
 type EmbedderFactory = Callable[[Settings, httpx.BaseTransport | None], Embedder]
+type ChatModelFactory = Callable[[Settings, httpx.BaseTransport | None], ChatModel]
 type VectorStoreFactory = Callable[[Settings, EmbeddingSpace], VectorStore]
 
 
@@ -73,6 +75,7 @@ class ProviderRegistry[F]:
 
 
 EMBEDDERS = ProviderRegistry[EmbedderFactory]("embedding")
+CHAT_MODELS = ProviderRegistry[ChatModelFactory]("chat")
 VECTOR_STORES = ProviderRegistry[VectorStoreFactory]("vector store")
 
 
@@ -83,6 +86,12 @@ def build_embedder(
     registry: ProviderRegistry[EmbedderFactory] = EMBEDDERS,
 ) -> Embedder:
     return registry.get(settings.embedding.provider)(settings, transport)
+
+
+def build_chat_model(
+    settings: Settings, *, transport: httpx.BaseTransport | None = None
+) -> ChatModel:
+    return CHAT_MODELS.get(settings.chat.provider)(settings, transport)
 
 
 def build_vector_store(settings: Settings, space: EmbeddingSpace) -> VectorStore:
@@ -103,9 +112,10 @@ class _Closeable(Protocol):
 class Container:
     """The application's components, built from the settings once, on first use.
 
-    Lazy, so `aporia-rag fetch` never creates a model client and a
-    misconfigured provider only fails the commands that need it. Built once,
-    so the indexer and the retriever share one embedder and one store.
+    Lazy, so `aporia-rag fetch` never creates a model client, `search` never
+    creates a chat model, and a misconfigured provider only fails the
+    commands that need it. Built once, so the indexer and the retriever share
+    one embedder and one store.
 
     The container owns what it builds: use it as a context manager, and on
     leaving it closes every component that holds resources (an HTTP
@@ -148,6 +158,14 @@ class Container:
     def retriever(self) -> Retriever:
         return Retriever(self.embedder, self.vector_store)
 
+    @cached_property
+    def chat_model(self) -> ChatModel:
+        return self._owned(build_chat_model(self.settings, transport=self.transport))
+
+    @cached_property
+    def generator(self) -> Generator:
+        return Generator(self.chat_model)
+
     def _owned[T](self, component: T) -> T:
         if isinstance(component, _Closeable):
             self._resources.callback(component.close)
@@ -159,17 +177,28 @@ class Container:
 # --------------------------------------------------------------------------
 
 
-def _ollama_embedder(settings: Settings, transport: httpx.BaseTransport | None) -> Embedder:
-    client = ollama.Client(
+def _ollama_client(settings: Settings, transport: httpx.BaseTransport | None) -> ollama.Client:
+    return ollama.Client(
         host=settings.ollama.host, timeout=settings.ollama.timeout_seconds, transport=transport
     )
+
+
+def _ollama_embedder(settings: Settings, transport: httpx.BaseTransport | None) -> Embedder:
     embedding = settings.embedding
     return OllamaEmbedder(
-        client,
+        _ollama_client(settings, transport),
         embedding.model,
         prompt_format=prompt_format_for(embedding.model, instruction=embedding.query_instruction),
         dimensions=embedding.dimensions,
         batch_size=embedding.batch_size,
+        keep_alive=settings.ollama.keep_alive,
+    )
+
+
+def _ollama_chat_model(settings: Settings, transport: httpx.BaseTransport | None) -> ChatModel:
+    return OllamaChatModel(
+        _ollama_client(settings, transport),
+        settings.chat.model,
         keep_alive=settings.ollama.keep_alive,
     )
 
@@ -179,4 +208,5 @@ def _chroma_store(settings: Settings, space: EmbeddingSpace) -> VectorStore:
 
 
 EMBEDDERS.register("ollama", _ollama_embedder)
+CHAT_MODELS.register("ollama", _ollama_chat_model)
 VECTOR_STORES.register("chroma", _chroma_store)

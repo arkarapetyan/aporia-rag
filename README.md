@@ -78,21 +78,23 @@ Prerequisites: [uv](https://docs.astral.sh/uv/) and [Ollama](https://ollama.com)
 
 ```bash
 ollama pull qwen3-embedding:0.6b  # the embedding model (639 MB)
-ollama pull qwen3:14b             # the chat model (from the generation step on)
+ollama pull qwen3:14b             # the chat model (9.3 GB)
 
 make install                      # create .venv and install from the lockfile
 uv run aporia-rag fetch           # download the 12 works into data/raw (cached afterwards)
 uv run aporia-rag index           # embed them into the vector index in data/index
 uv run aporia-rag search "Is anything good without qualification?" -k 5
 uv run aporia-rag search "What is justice?" --author plato
+uv run aporia-rag ask "Is anything good without qualification?"
 uv run aporia-rag evaluate        # Hit@k and MRR of retrieval on 40 gold questions
 make check                        # lint, strict type-check, tests with coverage: what CI runs
 make help                         # list all targets
 ```
 
 `index` only embeds what is new or changed, so running it again is cheap; `index --rebuild`
-starts over. `search` shows what retrieval alone finds, with similarity scores and citations: the
-baseline the corrective agent has to beat.
+starts over. `search` shows what retrieval alone finds, with similarity scores and citations.
+`ask` has the chat model answer from those passages, citing them as `[1]`, `[2]`... and listing
+them under the answer: plain RAG, the baseline the corrective agent has to beat.
 
 ## Configuration
 
@@ -105,7 +107,8 @@ APORIA_EMBEDDING__MODEL=embeddinggemma:300m   # section, two underscores, field
 APORIA_OLLAMA__HOST=http://gpu-box:11434
 ```
 
-Models and stores are chosen by name (`APORIA_EMBEDDING__PROVIDER`, `APORIA_STORAGE__PROVIDER`).
+Models and stores are chosen by name (`APORIA_EMBEDDING__PROVIDER`, `APORIA_CHAT__PROVIDER`,
+`APORIA_STORAGE__PROVIDER`).
 Only Ollama and Chroma exist today, but the code depends on interfaces, not on them: adding Google,
 Voyage AI or Anthropic means one adapter class and one registration (see
 [architecture](docs/architecture.md#provider-independence-ports-adapters-registries)). Each
@@ -132,8 +135,8 @@ write the component, then run the full quality gate. Test lists live in
 - [x] Corpus manifest, Gutenberg mirror client with cache, boilerplate cleaning, `aporia-rag fetch`
 - [x] Per-edition structuring (authors' text only, sections with citation labels) and lazy document loader
 - [x] Embeddings + Chroma vector store, incremental indexing, `aporia-rag index` and `search`
-- [ ] Embedding model bake-off on a small gold question set
-- [ ] Baseline RAG (retrieve then generate), end to end
+- [x] Retrieval evaluation on 40 gold questions and an embedding model bake-off (`aporia-rag evaluate`)
+- [x] Baseline RAG (retrieve then generate), end to end: `aporia-rag ask`
 - [ ] Relevance grader + query rewriter
 - [ ] Web search fallback
 - [ ] Groundedness and answer-relevance graders

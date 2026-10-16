@@ -23,6 +23,7 @@ def test_defaults_run_everything_locally() -> None:  # 9.1
     )
     assert settings.embedding.dimensions is None  # the model's native size
     assert settings.embedding.query_instruction is None  # the model's documented default
+    assert (settings.chat.provider, settings.chat.model) == ("ollama", "qwen3:14b")
     assert settings.storage.provider == "chroma"
     assert settings.storage.corpus_dir == Path("data/raw")
     assert settings.storage.index_dir == Path("data/index")

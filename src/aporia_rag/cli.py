@@ -3,6 +3,7 @@
     aporia-rag fetch                 download the corpus into data/raw
     aporia-rag index [--rebuild]     embed the corpus into the vector index
     aporia-rag search QUESTION       show the passages retrieval finds for a question
+    aporia-rag ask QUESTION          answer a question from those passages, citing them
     aporia-rag evaluate [--model M]  measure retrieval on the gold questions [--dump PATH]
 
 Each command parses its arguments, asks the `Container` for the components
@@ -22,6 +23,7 @@ import httpx
 from aporia_rag.bootstrap import Container
 from aporia_rag.config import Settings, load_settings
 from aporia_rag.domain.errors import AporiaError
+from aporia_rag.domain.models import RetrievedChunk
 from aporia_rag.evaluation.gold import GoldSet, load_gold_set
 from aporia_rag.evaluation.retrieval import (
     DEPTH,
@@ -121,15 +123,19 @@ def _parser() -> argparse.ArgumentParser:
         help="show the passages retrieved for a question (no LLM involved)",
         description="Embed the question and print the most similar passages, best first.",
     )
-    search.add_argument("question")
-    search.add_argument(
-        "-k", type=_positive_int, default=5, help="how many passages (default: %(default)s)"
-    )
-    search.add_argument(
-        "--author", help="only this author's works (any part of the name, e.g. 'kant')"
-    )
-    _add_manifest_option(search)
+    _add_question_options(search)
     search.set_defaults(run=_search)
+
+    ask = commands.add_parser(
+        "ask",
+        help="answer a question from the retrieved passages, citing them",
+        description=(
+            "Retrieve the passages most similar to the question, as `search` does, and have "
+            "the chat model answer from them, citing each passage by its number."
+        ),
+    )
+    _add_question_options(ask)
+    ask.set_defaults(run=_ask)
 
     evaluate = commands.add_parser(
         "evaluate",
@@ -161,6 +167,17 @@ def _parser() -> argparse.ArgumentParser:
     )
     evaluate.set_defaults(run=_evaluate)
     return parser
+
+
+def _add_question_options(command: argparse.ArgumentParser) -> None:
+    command.add_argument("question")
+    command.add_argument(
+        "-k", type=_positive_int, default=5, help="how many passages (default: %(default)s)"
+    )
+    command.add_argument(
+        "--author", help="only this author's works (any part of the name, e.g. 'kant')"
+    )
+    _add_manifest_option(command)
 
 
 def _add_manifest_option(command: argparse.ArgumentParser) -> None:
@@ -239,15 +256,19 @@ def _print_progress(progress: WorkProgress) -> None:
 
 
 def _search(args: argparse.Namespace, container: Container) -> int:
-    works = load_manifest(args.manifest).works
-    filters = None if args.author is None else {"author": _resolve_author(args.author, works)}
-    _require_index(container)
-    results = container.retriever.search(args.question, k=args.k, filters=filters)
-    for rank, result in enumerate(results, start=1):
+    for rank, result in enumerate(_retrieve(args, container), start=1):
         chunk = result.chunk
         print(f"{rank}. {result.score:.3f}  {chunk.metadata.citation}  [{chunk.id}]")
         print(f"   {_snippet(chunk.text)}")
     return 0
+
+
+def _retrieve(args: argparse.Namespace, container: Container) -> list[RetrievedChunk]:
+    """The passages for the question, as `search` shows them and `ask` answers from them."""
+    works = load_manifest(args.manifest).works
+    filters = None if args.author is None else {"author": _resolve_author(args.author, works)}
+    _require_index(container)
+    return container.retriever.search(args.question, k=args.k, filters=filters)
 
 
 def _resolve_author(name: str, works: Sequence[WorkSpec]) -> str:
@@ -275,6 +296,20 @@ def _require_index(container: Container) -> None:
             f"the index for {space.id} is empty; build it first: "
             f"`APORIA_EMBEDDING__MODEL={space.model} aporia-rag index`"
         )
+
+
+# --------------------------------------------------------------------------
+# ask
+# --------------------------------------------------------------------------
+
+
+def _ask(args: argparse.Namespace, container: Container) -> int:
+    answer = container.generator.answer(args.question, _retrieve(args, container))
+    print(answer.text)
+    print("\nPassages:")
+    for number, source in enumerate(answer.sources, start=1):
+        print(f"[{number}] {source.chunk.metadata.citation} ({source.chunk.id})")
+    return 0
 
 
 # --------------------------------------------------------------------------

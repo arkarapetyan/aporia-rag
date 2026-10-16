@@ -17,9 +17,9 @@ src/aporia_rag/
 ```
 
 **Rule:** dependencies point inward. `domain` imports nothing from the other packages;
-`indexing`, `retrieval` and `graph` talk to models and stores only through the `Protocol`s in
-`domain/ports.py`, never through Ollama/Chroma/ddgs types directly. Only `adapters/` imports
-provider libraries, and only `bootstrap.py` knows which adapter is in use.
+`indexing`, `retrieval`, `generation` and `graph` talk to models and stores only through the
+`Protocol`s in `domain/ports.py`, never through Ollama/Chroma/ddgs types directly. Only
+`adapters/` imports provider libraries, and only `bootstrap.py` knows which adapter is in use.
 
 So `adapters/` importing `chromadb` and `ollama` is the design, not a leak: adapters are the one
 place where a provider's API meets our interfaces. What must hold is that nothing *else* does.
@@ -27,8 +27,8 @@ place where a provider's API meets our interfaces. What must hold is that nothin
 **Enforced, not just documented.** The rules are [import-linter](https://import-linter.readthedocs.io)
 contracts in `pyproject.toml`, checked by `tests/unit/test_architecture.py` on every test run:
 
-- *layers*: `cli` > `bootstrap` > {`adapters`, `config`, `evaluation`, `indexing`, `ingestion`,
-  `retrieval`} > `domain`. Nothing imports a layer above it, and the middle packages do not import each other:
+- *layers*: `cli` > `bootstrap` > {`adapters`, `config`, `evaluation`, `generation`, `indexing`,
+  `ingestion`, `retrieval`} > `domain`. Nothing imports a layer above it, and the middle packages do not import each other:
   the indexer reaches Chroma only through the `VectorStore` port. `graph` gets its place in this
   contract when the package is created (it will sit above `retrieval`, which it calls).
 - *provider-libraries*: `chromadb` and `ollama` are imported by `adapters` only, directly or
@@ -105,13 +105,14 @@ paragraph found. A language-identification library would add a dependency for on
 
 ## Provider independence: ports, adapters, registries
 
-The application is written against three ports (`domain/ports.py`):
+The application is written against four ports (`domain/ports.py`):
 
 | Port | What it promises | Implementations |
 |---|---|---|
 | `Chunker` | `chunk(document) -> list[Chunk]` | `RecursiveChunker` |
 | `Embedder` | `space`, `embed_documents(passages)`, `embed_query(text)` | `OllamaEmbedder` (tests: `HashingEmbedder`) |
 | `VectorStore` | `space`, `upsert`, `query(vector, k, filters)`, `fingerprints`, `delete`, `clear`, `count` | `ChromaVectorStore` (tests: `InMemoryVectorStore`) |
+| `ChatModel` | `chat(messages) -> str`, never empty | `OllamaChatModel` (tests: `ScriptedChatModel`) |
 
 They are `typing.Protocol`s: any class with these methods qualifies, without inheriting from
 anything. The ports speak only in domain types (`Passage`, `Chunk`, plain `list[float]`
@@ -119,9 +120,11 @@ vectors), never in a provider's types, and adapters translate provider exception
 into the domain's (`ProviderUnavailableError`, `ModelNotAvailableError`...), so nothing outside
 `adapters/` can tell which provider is in use.
 
-A port is added together with its first caller and its first adapter, never ahead of them: the
-`ChatModel` port (plain and structured completion) arrives with the generation step, designed
-test-first against what the generator and the graders actually need.
+A port is added together with its first caller and its first adapter, never ahead of them.
+`ChatModel` arrived with the generator, so it is "messages in, reply out" and no more; structured
+output (the graders' JSON verdicts) is added when the graders need it. Providers take the system
+prompt differently (a `system` message in Ollama and OpenAI, a separate parameter in Anthropic, a
+`system_instruction` in Gemini), so `ChatMessage` states the role and each adapter maps it.
 
 **Queries and passages are different calls.** Retrieval embedding models are trained
 asymmetrically, and each provider marks the difference its own way: an instruction (Qwen3), a
@@ -198,6 +201,30 @@ cosine, and the store reports similarity (1 - distance), so every store returns 
 **Fail loudly on over-long input.** Ollama silently truncates input longer than the model's
 context unless told not to; the adapter sends `truncate: false`, so an over-long chunk is an error
 instead of a vector of half its text.
+
+## Generation
+
+**The baseline is plain RAG.** `aporia-rag ask` retrieves the `k` passages most similar to the
+question, exactly as `search` does, and `generation.Generator` has the chat model answer from them.
+No grading, rewriting or web search: those are the corrective graph's, and the evaluation will
+measure what each adds over this baseline.
+
+**Numbered passages, numbered citations.** The model gets the passages numbered from 1, each headed
+by its citation, then the question (the usual advice for long prompts: the material first, the
+question last). The system prompt asks it to use only the passages, to cite the passage behind each
+claim as `[n]`, and to say so when the passages do not answer. A number is short and unambiguous,
+where a written-out citation gets paraphrased, and `Answer.sources[n - 1]` is the passage cited as
+`[n]`, so every citation leads back to an exact chunk. `ask` prints the answer and then the
+numbered passages. Nothing checks yet that the model keeps to the passages; that is what the
+groundedness grader will do.
+
+**Thinking off.** `qwen3` is a thinking model: by default it reasons at length before answering,
+which takes several times as long. The Ollama adapter sends `think: false`, so the baseline answers
+directly (models that cannot think are unaffected). The graders may want reasoning back; it becomes
+a setting when something needs it.
+
+**An empty reply is an error.** The `ChatModel` port promises a non-empty reply, so the adapter
+raises `ProviderError` rather than letting an empty answer be printed (or, later, graded).
 
 ## Evaluation
 

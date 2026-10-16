@@ -1,8 +1,8 @@
-"""Tests for aporia_rag.cli (test plan: Components 6 and 15).
+"""Tests for aporia_rag.cli (test plan: Components 6, 15, 17 and 20).
 
 The CLI is driven exactly as from a shell, through `main(argv)`. The seams
-are the injected httpx transport, which serves the mirror and the embedding
-model from memory, and the injected settings, which point the corpus and
+are the injected httpx transport, which serves the mirror, the embedding
+model and the chat model from memory, and the injected settings, which point the corpus and
 the index at a temporary directory.
 """
 
@@ -521,3 +521,102 @@ def test_evaluate_dump_writes_every_retrieved_chunk(
     assert {record["model"] for record in records} == {QWEN}
     assert {record["question_id"] for record in records} == {"good-will", "state-of-nature"}
     assert any(record["passage_hit"] for record in records)
+
+
+# --------------------------------------------------------------------------
+# ask (Component 20)
+# --------------------------------------------------------------------------
+
+GOOD_WILL_QUESTION = "What can be called good without qualification?"
+REPLY = "Only a good will is good without qualification [1]."
+
+
+def _passage_headers(text: str) -> list[str]:
+    """The "[n] citation" lines of a prompt or of the printed passage list."""
+    return re.findall(r"^\[\d+\] [^(\n]+?(?= \(|$)", text, re.MULTILINE)
+
+
+def test_ask_prints_the_answer_and_the_passages_numbered_as_the_model_saw_them(
+    index_manifest: Path, settings: Settings, capsys: pytest.CaptureFixture[str]
+) -> None:  # 20.1
+    server = FakeOllamaServer(reply=REPLY)
+    _index(index_manifest, settings, server)
+    capsys.readouterr()
+
+    exit_code = _run(
+        "ask", GOOD_WILL_QUESTION, "-k", "2",
+        manifest=index_manifest, settings=settings, transport=server.transport,
+    )  # fmt: skip
+
+    assert exit_code == 0
+    output = capsys.readouterr().out
+    assert output.startswith(f"{REPLY}\n\nPassages:\n")
+    assert (
+        "[1] Immanuel Kant, Fundamental Principles of the Metaphysic of Morals, First Section "
+        "(kant-groundwork/first-section#0)"
+    ) in output
+    [chat] = server.chat_requests
+    prompt = chat["messages"][-1]["content"]
+    assert len(_passage_headers(output)) == 2
+    assert _passage_headers(output) == _passage_headers(prompt)
+
+
+def test_ask_takes_k_and_author_like_search(
+    index_manifest: Path, settings: Settings
+) -> None:  # 20.2
+    server = FakeOllamaServer()
+    _index(index_manifest, settings, server)
+
+    exit_code = _run(
+        "ask", GOOD_WILL_QUESTION, "-k", "1", "--author", "hobbes",
+        manifest=index_manifest, settings=settings, transport=server.transport,
+    )  # fmt: skip
+
+    assert exit_code == 0
+    [chat] = server.chat_requests
+    assert _passage_headers(chat["messages"][-1]["content"]) == [
+        "[1] Thomas Hobbes, Leviathan, Chapter XIII"  # not Kant, the best match overall
+    ]
+
+
+def test_ask_on_an_empty_index_says_to_run_index(
+    index_manifest: Path, settings: Settings, capsys: pytest.CaptureFixture[str]
+) -> None:  # 20.3
+    server = FakeOllamaServer()
+
+    exit_code = _run(
+        "ask", "virtue", manifest=index_manifest, settings=settings, transport=server.transport
+    )
+
+    assert exit_code == 1
+    assert "aporia-rag index" in capsys.readouterr().err
+    assert server.requests == []  # neither embedded nor asked
+
+
+def test_ask_with_a_chat_model_not_pulled_says_how_to_pull_it(
+    index_manifest: Path, settings: Settings, capsys: pytest.CaptureFixture[str]
+) -> None:  # 20.4
+    server = FakeOllamaServer(models=[QWEN])  # the embedding model only
+    _index(index_manifest, settings, server)
+    capsys.readouterr()
+
+    exit_code = _run(
+        "ask", "virtue", manifest=index_manifest, settings=settings, transport=server.transport
+    )
+
+    assert exit_code == 1
+    error = capsys.readouterr().err
+    assert error.startswith("error: ")
+    assert "ollama pull qwen3:14b" in error
+    assert len(error.strip().splitlines()) == 1
+
+
+def test_ask_releases_both_models_connections(
+    index_manifest: Path, settings: Settings
+) -> None:  # 20.5
+    server = FakeOllamaServer()
+    _index(index_manifest, settings, FakeOllamaServer())
+
+    _run("ask", "virtue", manifest=index_manifest, settings=settings, transport=server.transport)
+
+    assert server.transport.closes == 2  # the embedder's client and the chat model's

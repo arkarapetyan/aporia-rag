@@ -1,8 +1,8 @@
 """In-memory test doubles for the application's ports.
 
 They implement the same interfaces as the real adapters (`Embedder`,
-`VectorStore`, Ollama's HTTP API), so code under test cannot tell them
-apart. `InMemoryVectorStore` is held to exactly the same behaviour as
+`VectorStore`, `ChatModel`, Ollama's HTTP API), so code under test cannot
+tell them apart. `InMemoryVectorStore` is held to exactly the same behaviour as
 `ChromaVectorStore` by the shared contract suite in
 tests/unit/adapters/test_vector_store_contract.py.
 """
@@ -16,7 +16,7 @@ from typing import Any, Final
 
 import httpx
 
-from aporia_rag.domain.models import EmbeddingSpace, Passage, RetrievedChunk
+from aporia_rag.domain.models import ChatMessage, EmbeddingSpace, Passage, RetrievedChunk
 from aporia_rag.domain.ports import (
     IndexRecord,
     MetadataFilter,
@@ -140,6 +140,18 @@ def _matches(record: IndexRecord, filters: MetadataFilter | None) -> bool:
     return all(metadata.get(field) == value for field, value in (filters or {}).items())
 
 
+class ScriptedChatModel:
+    """A `ChatModel` that gives a fixed reply and records every conversation it receives."""
+
+    def __init__(self, reply: str = "Only a good will is good without qualification [1].") -> None:
+        self.reply = reply
+        self.conversations: list[list[ChatMessage]] = []
+
+    def chat(self, messages: Sequence[ChatMessage]) -> str:
+        self.conversations.append(list(messages))
+        return self.reply
+
+
 class RecordingTransport(httpx.MockTransport):
     """A MockTransport that counts how many clients using it were closed."""
 
@@ -156,40 +168,55 @@ class RecordingTransport(httpx.MockTransport):
 
 
 class FakeOllamaServer:
-    """An `httpx` request handler that answers like Ollama's `/api/embed`.
+    """An `httpx` request handler that answers like Ollama's `/api/embed` and `/api/chat`.
 
     Vectors are `hash_vector`s of the exact input strings, so tests can
-    check both what was sent and what came back. Use `.transport` as the
-    `transport=` of an `ollama.Client` or `httpx.Client`; `.transport.closed`
-    tells whether that client was closed afterwards.
+    check both what was sent and what came back; every chat gets `reply`.
+    Use `.transport` as the `transport=` of an `ollama.Client` or
+    `httpx.Client`; `.transport.closed` tells whether that client was closed
+    afterwards.
     """
 
     def __init__(
         self,
         *,
-        models: Collection[str] = ("qwen3-embedding:0.6b",),
+        models: Collection[str] = ("qwen3-embedding:0.6b", "qwen3:14b"),
         dimensions: int = 64,
+        reply: str = "Only a good will is good without qualification [1].",
         status: int | None = None,
     ) -> None:
         self.models = set(models)
         self.dimensions = dimensions
+        self.reply = reply
         self.status = status
         self.requests: list[dict[str, Any]] = []
         self.transport = RecordingTransport(self)
+
+    @property
+    def chat_requests(self) -> list[dict[str, Any]]:
+        return [body for body in self.requests if "messages" in body]
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
         body: dict[str, Any] = json.loads(request.content)
         self.requests.append(body)
         if self.status is not None:
             return httpx.Response(self.status, json={"error": "simulated server failure"})
-        if request.url.path != "/api/embed":
+        endpoint = {"/api/embed": self._embed, "/api/chat": self._chat}.get(request.url.path)
+        if endpoint is None:
             return httpx.Response(404, json={"error": "not found"})
         if body["model"] not in self.models:
             error = f'model "{body["model"]}" not found, try pulling it first'
             return httpx.Response(404, json={"error": error})
+        return endpoint(body)
+
+    def _embed(self, body: dict[str, Any]) -> httpx.Response:
         inputs = body["input"] if isinstance(body["input"], list) else [body["input"]]
         vectors = [hash_vector(text, self.dimensions) for text in inputs]
         return httpx.Response(200, json={"model": body["model"], "embeddings": vectors})
+
+    def _chat(self, body: dict[str, Any]) -> httpx.Response:
+        message = {"role": "assistant", "content": self.reply}
+        return httpx.Response(200, json={"model": body["model"], "message": message, "done": True})
 
 
 def refusing_transport() -> httpx.MockTransport:

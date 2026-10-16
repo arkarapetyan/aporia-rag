@@ -1,9 +1,9 @@
 """Ports: the interfaces the application needs from the outside world.
 
 This is the "ports" half of ports and adapters (hexagonal architecture).
-The indexer, the retriever and, later, the LangGraph nodes depend only on
-these Protocols; `adapters/` holds the implementations (Ollama, Chroma, and
-later Google, Voyage, Anthropic...). A Protocol is satisfied structurally:
+The indexer, the retriever, the generator and, later, the LangGraph nodes
+depend only on these Protocols; `adapters/` holds the implementations
+(Ollama, Chroma, and later Google, Voyage, Anthropic...). A Protocol is satisfied structurally:
 any class with the right methods qualifies, without inheriting from it, so
 an adapter needs no import from here beyond the data types it exchanges,
 and the in-memory test fakes are plain classes.
@@ -20,6 +20,7 @@ from typing import Final, Protocol
 
 from aporia_rag.domain.errors import IndexMismatchError, VectorDimensionError
 from aporia_rag.domain.models import (
+    ChatMessage,
     Chunk,
     Document,
     EmbeddingSpace,
@@ -62,6 +63,20 @@ class Embedder(Protocol):
 
     def embed_query(self, text: str) -> Vector:
         """The vector of a search query."""
+        ...
+
+
+class ChatModel(Protocol):
+    """A language model that replies to a conversation.
+
+    Providers take the system prompt differently: as a message with the
+    "system" role (Ollama, OpenAI), as a separate `system` parameter
+    (Anthropic) or as a `system_instruction` (Gemini). The interface states
+    the role; each adapter maps it to its provider's mechanism.
+    """
+
+    def chat(self, messages: Sequence[ChatMessage]) -> str:
+        """The model's reply: never empty (an empty reply is a `ProviderError`)."""
         ...
 
 

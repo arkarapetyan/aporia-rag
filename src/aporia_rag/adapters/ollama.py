@@ -1,11 +1,14 @@
-"""Embeddings from a local Ollama server.
+"""Embeddings and chat from a local Ollama server.
 
-Uses the official `ollama` client's `/api/embed` endpoint, which takes a
-batch of inputs per request. The client is injected, so the composition
-root decides the host and timeout, and tests can give it a fake transport.
+Uses the official `ollama` client: `/api/embed`, which takes a batch of
+inputs per request, and `/api/chat`. The client is injected, so the
+composition root decides the host and timeout, and tests can give it a fake
+transport. Both adapters translate the client's failures the same way, in
+`_translated_errors`.
 """
 
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
 from http import HTTPStatus
 
 import httpx
@@ -18,7 +21,7 @@ from aporia_rag.domain.errors import (
     ProviderError,
     ProviderUnavailableError,
 )
-from aporia_rag.domain.models import EmbeddingSpace, Passage
+from aporia_rag.domain.models import ChatMessage, EmbeddingSpace, Passage
 from aporia_rag.domain.ports import Vector
 
 
@@ -48,18 +51,16 @@ class OllamaEmbedder(BatchingEmbedder):
 
     def close(self) -> None:
         """Release the client's pooled HTTP connections."""
-        # Public API, but unannotated in ollama 0.6 (`def close(self):`).
-        self._client.close()  # type: ignore[no-untyped-call]
+        _close(self._client)
 
     def _embed_batch(self, passages: Sequence[Passage], purpose: EmbeddingPurpose) -> list[Vector]:
         if purpose is EmbeddingPurpose.QUERY:
             inputs = [self._format.query(passage.text) for passage in passages]
         else:
             inputs = [self._format.document(passage) for passage in passages]
-        model = self.space.model
-        try:
+        with _translated_errors(self.space.model):
             response = self._client.embed(
-                model=model,
+                model=self.space.model,
                 input=inputs,
                 # Without this, Ollama silently cuts inputs longer than the
                 # model's context. A chunk embedded from half its text would
@@ -68,14 +69,57 @@ class OllamaEmbedder(BatchingEmbedder):
                 dimensions=self.space.dimensions,
                 keep_alive=self._keep_alive,
             )
-        except ConnectionError as error:  # the client's translation of httpx.ConnectError
-            raise ProviderUnavailableError(f"cannot reach Ollama: {error}") from error
-        except ollama.ResponseError as error:
-            if error.status_code == HTTPStatus.NOT_FOUND:
-                raise ModelNotAvailableError(
-                    f"Ollama does not have the model {model!r}; run `ollama pull {model}`"
-                ) from error
-            raise ProviderError(f"Ollama failed to embed: {error}") from error
-        except httpx.HTTPError as error:  # e.g. a timeout, which the client lets through
-            raise ProviderError(f"Ollama request failed: {error}") from error
         return [list(vector) for vector in response.embeddings]
+
+
+class OllamaChatModel:
+    """A `ChatModel` backed by an Ollama model such as `qwen3:14b`."""
+
+    def __init__(self, client: ollama.Client, model: str, *, keep_alive: str | None = None) -> None:
+        self._client = client
+        self._model = model
+        self._keep_alive = keep_alive
+
+    def close(self) -> None:
+        """Release the client's pooled HTTP connections."""
+        _close(self._client)
+
+    def chat(self, messages: Sequence[ChatMessage]) -> str:
+        with _translated_errors(self._model):
+            response = self._client.chat(
+                model=self._model,
+                messages=[
+                    {"role": message.role, "content": message.content} for message in messages
+                ],
+                # Answer directly. A thinking model (qwen3) would otherwise
+                # reason first, which takes several times as long; models
+                # that cannot think are not affected.
+                think=False,
+                keep_alive=self._keep_alive,
+            )
+        reply = (response.message.content or "").strip()
+        if not reply:
+            raise ProviderError(f"Ollama's {self._model} returned an empty reply")
+        return reply
+
+
+def _close(client: ollama.Client) -> None:
+    # Public API, but unannotated in ollama 0.6 (`def close(self):`).
+    client.close()  # type: ignore[no-untyped-call]
+
+
+@contextmanager
+def _translated_errors(model: str) -> Iterator[None]:
+    """Turn the client's failures into the application's `ProviderError`s."""
+    try:
+        yield
+    except ConnectionError as error:  # the client's translation of httpx.ConnectError
+        raise ProviderUnavailableError(f"cannot reach Ollama: {error}") from error
+    except ollama.ResponseError as error:
+        if error.status_code == HTTPStatus.NOT_FOUND:
+            raise ModelNotAvailableError(
+                f"Ollama does not have the model {model!r}; run `ollama pull {model}`"
+            ) from error
+        raise ProviderError(f"Ollama failed: {error}") from error
+    except httpx.HTTPError as error:  # e.g. a timeout, which the client lets through
+        raise ProviderError(f"Ollama request failed: {error}") from error

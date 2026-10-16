@@ -48,6 +48,7 @@ a document). Only *our* constraints are tested here, not pydantic itself.
 | 1.15 | `common_dimension` returns the shared vector size and raises `VectorDimensionError` (a `ValueError`) on mixed, unexpected or empty vectors | One rule for every vector store. |
 | 1.16 | `SourceMetadata.citation` is "Author, Title, Section", or "Author, Title" without a section | One citation format for the index, the CLI and (later) generated answers. |
 | 1.17 | `check_same_space` refuses an embedder and a store from different embedding spaces, naming both | Shared by the indexer and the retriever. |
+| 1.18 | `ChatMessage` has the role `system` or `user` and non-empty content | A role no adapter can map must fail here, not at the provider. (`assistant` arrives with the first multi-turn caller.) |
 
 ## Component 2: Recursive chunker (`aporia_rag.ingestion.chunker`)
 
@@ -321,7 +322,7 @@ Known residue, accepted as low-impact: `***` lacuna marks, and about 30 unbalanc
 
 **Design rule: provider independence.** Nothing outside `adapters/` knows which model provider or
 vector database is in use. The application depends on interfaces in `domain/ports.py`:
-`Embedder`, `VectorStore` and `Chunker` (a `ChatModel` port arrives with the generation step). Adapters implement
+`Embedder`, `VectorStore` and `Chunker` (and `ChatModel`, from components 18-20 on). Adapters implement
 them; `bootstrap.py` chooses an adapter by name from the settings through a small registry, so
 adding Google, Voyage or Anthropic later means one new adapter class and one registration, with no
 change to the indexer, retriever or graph.
@@ -344,7 +345,7 @@ later graph tests is proven to behave like the real store.
 
 | # | Test |
 |---|---|
-| 9.1 | Defaults: Ollama at `http://localhost:11434`, embedding `ollama` / `qwen3-embedding:0.6b`, Chroma index in `data/index`, corpus in `data/raw`, chunks 1000/150 |
+| 9.1 | Defaults: Ollama at `http://localhost:11434`, embedding `ollama` / `qwen3-embedding:0.6b`, chat `ollama` / `qwen3:14b`, Chroma index in `data/index`, corpus in `data/raw`, chunks 1000/150 |
 | 9.2 | Nested environment variables override defaults (`APORIA_EMBEDDING__MODEL=...`) |
 | 9.3 | Values are read from a `.env` file, and real environment variables win over it |
 | 9.4 | Invalid values are rejected: batch size 0, chunk overlap not smaller than chunk size |
@@ -453,6 +454,8 @@ later graph tests is proven to behave like the real store.
 | 14.6 | The `Container` builds each component once, and only when first used (so an unusable provider fails only when it is needed) |
 | 14.7 | An index built through the container's indexer is searchable through its retriever (they share the embedder and the store) |
 | 14.8 | The container is a context manager: leaving it closes the components it built that hold connections, even when the block raises; a container that built nothing closes nothing |
+| 14.9 | Builds an Ollama chat model from the settings (host, model, `keep_alive`); an unknown chat provider raises `ConfigurationError` listing the available ones |
+| 14.10 | The container's generator uses its chat model, built once and only when first used (so `search` never needs one), and closed on leaving the container |
 
 ## Component 15: `index` and `search` commands (`aporia_rag.cli`)
 
@@ -530,6 +533,54 @@ the union of all systems' top results is judged).
 | 17.4 | `evaluate` releases the connections of every model it evaluated |
 | 17.5 | `evaluate --dump PATH` also writes every model's retrieved chunks to PATH (16.9), creating its folder, and says where; the printed report is unchanged |
 
+---
+
+## Answering questions: components 18-20
+
+The baseline RAG pipeline: retrieve the `k` passages most similar to the question (component 13),
+then have a chat model answer from them (the generation step: the "G" in RAG). Like the retriever it
+is deliberately plain: no grading, no query rewriting, no web search. The corrective graph adds
+those, and the evaluation will measure what each adds over this baseline.
+
+**Grounding and citations.** The model receives the passages numbered from 1, each headed by its
+citation, and the question last; the system prompt tells it to answer only from the passages, to
+cite them by number (`[2]`), and to say so when they do not answer the question. `Answer.sources[n -
+1]` is the passage cited as `[n]`, so every citation leads back to an exact chunk. Whether the model
+really keeps to the passages is for the graders to check later; the baseline only asks.
+
+**Provider independence.** The `ChatModel` port is "messages in, reply out". Providers take the
+system prompt differently (a message with the `system` role in Ollama and OpenAI, a separate
+`system` parameter in Anthropic, a `system_instruction` in Gemini), so `ChatMessage` states the
+role and each adapter maps it. The tests use `ScriptedChatModel`, a fake that records the messages
+it receives and returns a fixed reply, and `FakeOllamaServer`, which now also answers `/api/chat`.
+
+## Component 18: Ollama chat model (`aporia_rag.adapters.ollama`)
+
+| # | Test |
+|---|---|
+| 18.1 | Posts to `/api/chat` with the model and the messages as role/content pairs, in order, with thinking off; `keep_alive` only when configured |
+| 18.2 | Returns the reply's text without surrounding whitespace |
+| 18.3 | An empty reply raises `ProviderError` (there is nothing to show; a thinking model that only thought, say) |
+| 18.4 | A model that is not pulled, Ollama not running and any other failure raise the same errors as for the embedder (10.16-10.18) |
+| 18.5 | `close()` releases its HTTP connections |
+
+## Component 19: Generator (`aporia_rag.generation.generator`)
+
+| # | Test |
+|---|---|
+| 19.1 | The model receives the system prompt, then one user message: the passages numbered from 1 in the order given, each headed by its citation and followed by its exact text, and the question last |
+| 19.2 | The answer is the model's reply, with the passages as its sources, in the order of their numbers |
+
+## Component 20: `ask` command (`aporia_rag.cli`)
+
+| # | Test |
+|---|---|
+| 20.1 | `ask` prints the model's answer, then the passages it was given, numbered as the model saw them, with citation and chunk id |
+| 20.2 | `ask -k N` gives the model N passages, and `ask --author` restricts them to one author, as in `search` |
+| 20.3 | `ask` on an empty index says to run `aporia-rag index` and never calls the chat model |
+| 20.4 | A chat model that is not pulled is a one-line error naming `ollama pull <model>` |
+| 20.5 | `ask` releases its connections, the chat model's included |
+
 ## Architecture rules (`tests/unit/test_architecture.py`, run in the default suite)
 
 The dependency rules of [architecture.md](architecture.md) are checked by
@@ -539,13 +590,14 @@ instead of waiting for a code review to notice it.
 
 | # | Test |
 |---|---|
-| A.1 | Layers: `cli` > `bootstrap` > {`adapters`, `config`, `evaluation`, `indexing`, `ingestion`, `retrieval`} > `domain`; nothing imports a layer above it, and the middle packages do not import each other |
+| A.1 | Layers: `cli` > `bootstrap` > {`adapters`, `config`, `evaluation`, `generation`, `indexing`, `ingestion`, `retrieval`} > `domain`; nothing imports a layer above it, and the middle packages do not import each other |
 | A.2 | Provider libraries (`chromadb`, `ollama`) are imported only by `adapters` (and so are reachable only through `bootstrap`) |
 
-## Real-model tests (opt-in: `make test-llm`; need Ollama with the configured embedding model)
+## Real-model tests (opt-in: `make test-llm`; need Ollama with the configured embedding and chat models)
 
 | # | Test |
 |---|---|
 | L.1 | Vectors have the model's size, the same for every call |
 | L.2 | The same text embedded as a query and as a passage gives different vectors (the prompt format is applied) |
 | L.3 | A question about the good will ranks a Kant passage above a Hobbes passage |
+| L.4 | The configured chat model answers a question from three passages: the answer cites at least one of them by a number in range, and contains no thinking (`<think>`) |

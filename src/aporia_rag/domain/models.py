@@ -6,7 +6,7 @@ mutate it behind another stage's back. `extra="forbid"` turns a misspelled
 field into an immediate error instead of a silently dropped value.
 """
 
-from typing import Self
+from typing import Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -107,3 +107,25 @@ class RetrievedChunk(_ValueObject):
 
     chunk: Chunk
     score: float
+
+
+class ChatMessage(_ValueObject):
+    """One message of a conversation with a chat model.
+
+    The roles are the ones the application sends; "assistant" arrives with
+    the first caller that sends a conversation's earlier replies back.
+    """
+
+    role: Literal["system", "user"]
+    content: str = Field(min_length=1)
+
+
+class Answer(_ValueObject):
+    """A generated answer and the passages it was written from.
+
+    The answer cites a passage by its number, counting from 1:
+    `sources[n - 1]` is the passage it cites as "[n]".
+    """
+
+    text: str
+    sources: tuple[RetrievedChunk, ...]
