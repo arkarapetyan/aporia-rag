@@ -611,6 +611,29 @@ def test_ask_with_a_chat_model_not_pulled_says_how_to_pull_it(
     assert len(error.strip().splitlines()) == 1
 
 
+def test_ask_reports_how_long_retrieval_and_generation_took(
+    index_manifest: Path,
+    settings: Settings,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:  # 20.6
+    server = FakeOllamaServer()
+    _index(index_manifest, settings, server)
+    capsys.readouterr()
+    clock = iter([100.0, 100.4, 112.9])  # start, passages retrieved, answer generated
+    monkeypatch.setattr("aporia_rag.cli.perf_counter", lambda: next(clock))
+
+    exit_code = _run(
+        "ask", GOOD_WILL_QUESTION,
+        manifest=index_manifest, settings=settings, transport=server.transport,
+    )  # fmt: skip
+
+    assert exit_code == 0
+    assert capsys.readouterr().out.endswith(
+        "\nanswered in 12.9s (retrieval 0.4s, generation 12.5s)\n"
+    )
+
+
 def test_ask_releases_both_models_connections(
     index_manifest: Path, settings: Settings
 ) -> None:  # 20.5

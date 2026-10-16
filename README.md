@@ -94,7 +94,8 @@ make help                         # list all targets
 `index` only embeds what is new or changed, so running it again is cheap; `index --rebuild`
 starts over. `search` shows what retrieval alone finds, with similarity scores and citations.
 `ask` has the chat model answer from those passages, citing them as `[1]`, `[2]`... and listing
-them under the answer: plain RAG, the baseline the corrective agent has to beat.
+them under the answer, with the time retrieval and generation took: plain RAG, the baseline the
+corrective agent has to beat.
 
 ## Configuration
 

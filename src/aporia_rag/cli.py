@@ -17,6 +17,7 @@ import re
 import sys
 from collections.abc import Callable, Sequence
 from pathlib import Path
+from time import perf_counter
 
 import httpx
 
@@ -304,11 +305,19 @@ def _require_index(container: Container) -> None:
 
 
 def _ask(args: argparse.Namespace, container: Container) -> int:
-    answer = container.generator.answer(args.question, _retrieve(args, container))
+    started = perf_counter()
+    passages = _retrieve(args, container)
+    retrieved = perf_counter()
+    answer = container.generator.answer(args.question, passages)
+    answered = perf_counter()
     print(answer.text)
     print("\nPassages:")
     for number, source in enumerate(answer.sources, start=1):
         print(f"[{number}] {source.chunk.metadata.citation} ({source.chunk.id})")
+    print(
+        f"\nanswered in {answered - started:.1f}s "
+        f"(retrieval {retrieved - started:.1f}s, generation {answered - retrieved:.1f}s)"
+    )
     return 0
 
 

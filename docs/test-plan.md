@@ -543,8 +543,8 @@ is deliberately plain: no grading, no query rewriting, no web search. The correc
 those, and the evaluation will measure what each adds over this baseline.
 
 **Grounding and citations.** The model receives the passages numbered from 1, each headed by its
-citation, and the question last; the system prompt tells it to answer only from the passages, to
-cite them by number (`[2]`), and to say so when they do not answer the question. `Answer.sources[n -
+citation, and the question last; the system prompt tells it to answer only from the passages that
+bear on the question, to cite them by number (`[2]`), and to say so when they do not answer it. `Answer.sources[n -
 1]` is the passage cited as `[n]`, so every citation leads back to an exact chunk. Whether the model
 really keeps to the passages is for the graders to check later; the baseline only asks.
 
@@ -580,6 +580,7 @@ it receives and returns a fixed reply, and `FakeOllamaServer`, which now also an
 | 20.3 | `ask` on an empty index says to run `aporia-rag index` and never calls the chat model |
 | 20.4 | A chat model that is not pulled is a one-line error naming `ollama pull <model>` |
 | 20.5 | `ask` releases its connections, the chat model's included |
+| 20.6 | `ask` ends with how long the answer took, split into retrieval and generation (a scripted clock makes the numbers exact) |
 
 ## Architecture rules (`tests/unit/test_architecture.py`, run in the default suite)
 

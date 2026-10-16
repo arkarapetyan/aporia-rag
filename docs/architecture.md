@@ -211,8 +211,12 @@ measure what each adds over this baseline.
 
 **Numbered passages, numbered citations.** The model gets the passages numbered from 1, each headed
 by its citation, then the question (the usual advice for long prompts: the material first, the
-question last). The system prompt asks it to use only the passages, to cite the passage behind each
-claim as `[n]`, and to say so when the passages do not answer. A number is short and unambiguous,
+question last). The system prompt asks it to use only the passages that bear on the question, to
+say so when none answers it, to attribute to an author only what the author holds (philosophers
+often state a view to reject it), to cite the passage behind each claim as `[n]`, and to quote only
+words that are in the passages. Three of these rules came from the first real answers: `qwen3:14b`
+gave every retrieved passage a paragraph, presented a theory Nietzsche calls "wrong" as his own, and
+cited a Hobbes passage for a quotation that is not in it. A number is short and unambiguous,
 where a written-out citation gets paraphrased, and `Answer.sources[n - 1]` is the passage cited as
 `[n]`, so every citation leads back to an exact chunk. `ask` prints the answer and then the
 numbered passages. Nothing checks yet that the model keeps to the passages; that is what the
