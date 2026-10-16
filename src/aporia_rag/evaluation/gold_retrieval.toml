@@ -14,8 +14,17 @@
 #   judged; 39 passages added, 84 in all. Also fixed two errors: Hume poses the problem
 #   of induction in Section IV (only Section V was accepted), and the
 #   Descartes quote sat in a fragment that does not say what it is about.
+# - 2026-10-16: pooling. Every chunk the three bake-off models ranked in a
+#   top 10 (808 in all) was read and judged; a few answering passages they
+#   all missed were found by search. 217 passages added, 301 in all.
 # A passage a model retrieves that answers in words no search anticipated
 # still counts as a miss until it is added here.
+#
+# Judging rule: a passage is evidence when, read on its own, it states or
+# argues the author's answer to the question as asked; sharing the topic is
+# not enough. A question that names an author accepts only that author; one
+# that does not may accept another author's answer. Debatable calls are
+# marked "borderline" with the reason.
 #
 # Writing rules, so the set measures meaning rather than word overlap:
 # - Ask as a reader would, in modern English, not in the source's wording.
@@ -37,6 +46,9 @@ quote = "Justice, as you say, is the interest of the stronger. What, Thrasymachu
 [[questions.evidence]]
 document = "plato-republic/book-i"
 quote = "everywhere there is one principle of justice, which is the interest of the stronger"
+[[questions.evidence]]
+document = "plato-republic/book-i"
+quote = "but he also said that justice is the interest of the stronger"
 
 [[questions]]
 id = "plato-invisible-ring"
@@ -47,6 +59,24 @@ quote = "possessed by Gyges, the ancestor of Croesus the Lydian"
 [[questions.evidence]]
 document = "cicero-de-officiis/book-iii"
 quote = "Plato introduces the familiar story of Gyges"
+[[questions.evidence]]
+document = "plato-republic/book-ii"
+quote = "wherever any one thinks that he can safely be unjust, there he is unjust"
+[[questions.evidence]]
+document = "plato-republic/book-ix"
+quote = "What shall he profit, if his injustice be undetected and unpunished?"
+[[questions.evidence]]
+document = "cicero-de-officiis/book-iii"
+quote = "if impunity were assured, they would do what was most to their selfish interest"
+[[questions.evidence]]
+document = "cicero-de-officiis/book-iii"
+quote = "He is a man with whom you can safely play at odd and even in the dark"
+[[questions.evidence]]  # borderline: Adeimantus' case that concealed injustice pays
+document = "plato-republic/book-ii"
+quote = "With a view to concealment we will establish secret brotherhoods and political clubs"
+[[questions.evidence]]
+document = "plato-republic/book-x"
+quote = "Let a man do what is just, whether he have the ring of Gyges or not"
 
 [[questions]]
 id = "plato-justice-in-the-city"
@@ -57,6 +87,21 @@ quote = "one man should practise one thing only"
 [[questions.evidence]]
 document = "plato-republic/book-iv"
 quote = "justice was doing one’s own business, and not being a busybody"
+[[questions.evidence]]
+document = "plato-republic/book-iv"
+quote = "when the trader, the auxiliary, and the guardian each do their own business, that is justice"
+[[questions.evidence]]
+document = "plato-republic/book-iv"
+quote = "a State was thought by us to be just when the three classes in the State severally did their own business"
+[[questions.evidence]]
+document = "plato-republic/book-iv"
+quote = "the justice of the State consisted in each of the three classes doing the work of its own class"
+[[questions.evidence]]
+document = "plato-republic/book-iv"
+quote = "justice will be admitted to be the having and doing what is a man"
+[[questions.evidence]]
+document = "plato-republic/book-iv"
+quote = "was a shadow of justice, and for that reason it was of use"
 
 [[questions]]
 id = "plato-philosopher-rulers"
@@ -73,6 +118,18 @@ quote = "until philosophers bear rule, States and individuals will have no rest 
 [[questions.evidence]]
 document = "plato-republic/book-vii"
 quote = "there will be no injustice in compelling our philosophers to have a care and providence of others"
+[[questions.evidence]]
+document = "plato-republic/book-vii"
+quote = "toiling also at politics and ruling for the public good"
+[[questions.evidence]]
+document = "plato-republic/book-vii"
+quote = "when the true philosopher kings are born in a State"
+[[questions.evidence]]
+document = "plato-republic/book-vi"
+quote = "if we only have a guardian who has this knowledge our State will be perfectly ordered"
+[[questions.evidence]]
+document = "plato-republic/book-iii"
+quote = "Let us note among the guardians those who in their whole life show the greatest eagerness"
 
 [[questions]]
 id = "plato-cave"
@@ -80,6 +137,18 @@ question = "What is the image of the prisoners who mistake shadows on a wall for
 [[questions.evidence]]
 document = "plato-republic/book-vii"
 quote = "human beings living in a underground den"
+[[questions.evidence]]
+document = "plato-republic/book-vii"
+quote = "they see only their own shadows, or the shadows of one another, which the fire throws on the opposite wall of the cave"
+[[questions.evidence]]
+document = "plato-republic/book-vii"
+quote = "see what will naturally follow if the prisoners are released and disabused of their error"
+[[questions.evidence]]
+document = "plato-republic/book-vii"
+quote = "he is reluctantly dragged up a steep and rugged ascent"
+[[questions.evidence]]
+document = "schopenhauer-world-as-will-vol1/third-book-the-world-as-idea"
+quote = "we are like men who sit in a dark cave, bound so fast that they cannot turn their heads"
 
 # --- Aristotle, Nicomachean Ethics -----------------------------------------
 
@@ -89,6 +158,18 @@ question = "What does Aristotle conclude the good for a human being is, judging 
 [[questions.evidence]]
 document = "aristotle-nicomachean-ethics/book-i-chapter-v"
 quote = "a working of the Soul in the way of Excellence"
+[[questions.evidence]]
+document = "aristotle-nicomachean-ethics/book-i-chapter-vi"
+quote = "in our definition we assume that the actions and workings of the soul constitute Happiness"
+[[questions.evidence]]
+document = "aristotle-nicomachean-ethics/book-i-chapter-xi"
+quote = "for we call Happiness a working of the Soul"
+[[questions.evidence]]
+document = "aristotle-nicomachean-ethics/book-x-chapter-v"
+quote = "Happiness stands not in such pastimes but in the Workings in the way of Excellence"
+[[questions.evidence]]  # borderline: final answer, the working of the intellect
+document = "aristotle-nicomachean-ethics/book-x-chapter-vi"
+quote = "this must be perfect Happiness, if attaining a complete duration of life"
 
 [[questions]]
 id = "aristotle-virtue-as-mean"
@@ -99,6 +180,21 @@ quote = "a state apt to exercise deliberate choice, being in the relative mean"
 [[questions.evidence]]
 document = "aristotle-nicomachean-ethics/book-ii-chapter-v"
 quote = "Virtue then is in a sense a mean state"
+[[questions.evidence]]
+document = "aristotle-nicomachean-ethics/book-ii-chapter-ix"
+quote = "Now that Moral Virtue is a mean state, and how it is so, and that it lies between two faulty states"
+[[questions.evidence]]
+document = "aristotle-nicomachean-ethics/book-ii-chapter-ii"
+quote = "Virtue then is assumed to be that habit which is such, in relation to pleasures and pains, as to effect the best results"
+[[questions.evidence]]
+document = "aristotle-nicomachean-ethics/book-iii-chapter-viii"
+quote = "that they are mean states, and that they are habits"
+[[questions.evidence]]
+document = "aristotle-nicomachean-ethics/book-vi-chapter-ii"
+quote = "since Moral Virtue is a State apt to exercise Moral Choice"
+[[questions.evidence]]
+document = "aristotle-nicomachean-ethics/book-vi-chapter-xii"
+quote = "that state is Virtue, not merely which is in accordance with but which implies the possession of Right Reason"
 
 [[questions]]
 id = "aristotle-kinds-of-friendship"
@@ -106,6 +202,30 @@ question = "What different kinds of friendship are there, and what is each based
 [[questions.evidence]]
 document = "aristotle-nicomachean-ethics/book-viii-chapter-iv"
 quote = "The species then of Friendship are three"
+[[questions.evidence]]
+document = "aristotle-nicomachean-ethics/book-viii-chapter-iv"
+quote = "they whose motive to Friendship is utility love their friends for what is good to themselves"
+[[questions.evidence]]
+document = "aristotle-nicomachean-ethics/book-viii-chapter-iv"
+quote = "But the Friendship of the young is thought to be based on the motive of pleasure"
+[[questions.evidence]]
+document = "aristotle-nicomachean-ethics/book-viii-chapter-v"
+quote = "bad men will be friends by reason of pleasure or profit"
+[[questions.evidence]]
+document = "aristotle-nicomachean-ethics/book-viii-chapter-v"
+quote = "say there are several species of Friendship; primarily and specially that of the good"
+[[questions.evidence]]
+document = "aristotle-nicomachean-ethics/book-viii-chapter-xiii"
+quote = "There are then, as was stated at the commencement of this book, three kinds of Friendship"
+[[questions.evidence]]
+document = "aristotle-nicomachean-ethics/book-viii-chapter-viii"
+quote = "they show like Friendships in right of their likeness to that which is based on virtue"
+[[questions.evidence]]
+document = "aristotle-nicomachean-ethics/book-viii-chapter-vii"
+quote = "Of the two imperfect kinds that which most resembles the perfect is the Friendship based upon pleasure"
+[[questions.evidence]]
+document = "aristotle-nicomachean-ethics/book-viii-chapter-v"
+quote = "Friendship of whatever kind is based upon good or pleasure"
 
 # --- Cicero, De Officiis ---------------------------------------------------
 
@@ -118,6 +238,18 @@ quote = "what is morally wrong can never be expedient"
 [[questions.evidence]]
 document = "cicero-de-officiis/book-iii"
 quote = "nothing can be expedient that is not morally right"
+[[questions.evidence]]
+document = "cicero-de-officiis/book-iii"
+quote = "our standard is the same for expediency and for moral rectitude"
+[[questions.evidence]]
+document = "cicero-de-officiis/book-iii"
+quote = "Has expediency, then, prevailed over moral rectitude? Not at all"
+[[questions.evidence]]
+document = "cicero-de-officiis/book-i"
+quote = "the occasion cannot arise when it could be to the state's interest"
+[[questions.evidence]]
+document = "plato-republic/book-ix"
+quote = "on what ground can we say that a man is profited by injustice or intemperance or other baseness"
 
 [[questions]]
 id = "cicero-sources-of-duty"
@@ -125,6 +257,18 @@ question = "From which basic virtues does Cicero derive all of our moral duties?
 [[questions.evidence]]
 document = "cicero-de-officiis/book-i"
 quote = "all that is morally right rises from some one of four sources"
+[[questions.evidence]]
+document = "cicero-de-officiis/book-i"
+quote = "it is in each one considered singly that certain definite kinds of moral duties have their origin"
+[[questions.evidence]]
+document = "cicero-de-officiis/book-i"
+quote = "moral duties are derived from the four divisions of moral rectitude"
+[[questions.evidence]]
+document = "cicero-de-officiis/book-i"
+quote = "we have set down four cardinal virtues from which as sources moral rectitude and moral duty emanate"
+[[questions.evidence]]
+document = "cicero-de-officiis/book-iii"
+quote = "in Book One we derived moral duties from the four sources of moral rectitude"
 
 # --- Seneca, Minor Dialogues -----------------------------------------------
 
@@ -137,6 +281,30 @@ quote = "Why do many things turn out badly for good men?"
 [[questions.evidence]]
 document = "seneca-minor-dialogues/of-providence"
 quote = "why does God permit evil to happen to good men?"
+[[questions.evidence]]
+document = "seneca-minor-dialogues/of-providence"
+quote = "what you call hard measure, misfortunes, and things against which we ought to pray, are really to the advantage"
+[[questions.evidence]]
+document = "seneca-minor-dialogues/of-providence"
+quote = "should appoint fortune to be their adversary"
+[[questions.evidence]]
+document = "seneca-minor-dialogues/of-providence"
+quote = "Why do they suffer certain miseries? it is that they may teach others how to do so"
+[[questions.evidence]]
+document = "seneca-minor-dialogues/of-providence"
+quote = "God hardens, reviews, and exercises those whom He tests and loves"
+[[questions.evidence]]
+document = "seneca-minor-dialogues/of-providence"
+quote = "Because in the army the most hazardous services are assigned to the bravest soldiers"
+[[questions.evidence]]
+document = "hobbes-leviathan/part-ii-of-common-wealth-chapter-xxxi-of-the-kingdome-of-god-by-nature"
+quote = "decided by God himselfe, not by arguments derived from Job"
+[[questions.evidence]]
+document = "plato-republic/book-x"
+quote = "all things will in the end work together for good to him in life and death"
+[[questions.evidence]]
+document = "plato-republic/book-ii"
+quote = "of the evils the causes are to be sought elsewhere, and not in him"
 
 [[questions]]
 id = "seneca-anger-madness"
@@ -147,6 +315,15 @@ quote = "called anger a short madness"
 [[questions.evidence]]
 document = "seneca-minor-dialogues/of-anger-book-i"
 quote = "they whom anger possesses are not sane"
+[[questions.evidence]]
+document = "seneca-minor-dialogues/of-anger-book-ii"
+quote = "No way leads more swiftly to madness"
+[[questions.evidence]]
+document = "seneca-minor-dialogues/of-anger-book-ii"
+quote = "yet declare that they are not either angry or insane"
+[[questions.evidence]]
+document = "seneca-minor-dialogues/of-anger-book-ii"
+quote = "Anger is that which goes beyond reason and carries her away with it"
 
 [[questions]]
 id = "seneca-time-wasted"
@@ -154,6 +331,48 @@ question = "Is our time on earth really too brief, or do we just squander it?"
 [[questions.evidence]]
 document = "seneca-minor-dialogues/of-the-shortness-of-life"
 quote = "Life is long enough, if you know how to use it"
+[[questions.evidence]]
+document = "seneca-minor-dialogues/of-the-shortness-of-life"
+quote = "people live as though they would live for ever"
+[[questions.evidence]]
+document = "seneca-minor-dialogues/of-the-shortness-of-life"
+quote = "those vices of yours would swallow up any extent of time"
+[[questions.evidence]]
+document = "seneca-minor-dialogues/of-the-shortness-of-life"
+quote = "it follows that his life is a very long one, because he devotes every possible part of it to himself"
+[[questions.evidence]]
+document = "seneca-minor-dialogues/of-the-shortness-of-life"
+quote = "such a man has not lived long, but has only been long alive"
+[[questions.evidence]]
+document = "seneca-minor-dialogues/of-the-shortness-of-life"
+quote = "we play with what is the most precious of all things"
+[[questions.evidence]]
+document = "seneca-minor-dialogues/of-the-shortness-of-life"
+quote = "no one values time: they give it much more freely, as though it cost nothing"
+[[questions.evidence]]
+document = "seneca-minor-dialogues/of-the-shortness-of-life"
+quote = "no one will give you back your years"
+[[questions.evidence]]
+document = "seneca-minor-dialogues/of-the-shortness-of-life"
+quote = "postponement is the greatest waste of life"
+[[questions.evidence]]
+document = "seneca-minor-dialogues/of-the-shortness-of-life"
+quote = "Our swiftness in making use of our time ought therefore to vie with the swiftness of time itself"
+[[questions.evidence]]
+document = "seneca-minor-dialogues/of-the-shortness-of-life"
+quote = "the lives of busy men are the shortest of all"
+[[questions.evidence]]
+document = "seneca-minor-dialogues/of-the-shortness-of-life"
+quote = "and this is what busy men lose"
+[[questions.evidence]]
+document = "seneca-minor-dialogues/of-the-shortness-of-life"
+quote = "it matters not how much time you give men if it can find no place to settle in"
+[[questions.evidence]]
+document = "seneca-minor-dialogues/of-the-shortness-of-life"
+quote = "We live a small part only of our lives"
+[[questions.evidence]]  # borderline: Seneca elsewhere: life is brief against all time
+document = "seneca-minor-dialogues/of-consolation-to-marcia"
+quote = "our life occupies less than a point when compared with all time"
 
 [[questions]]
 id = "seneca-happy-life"
@@ -164,6 +383,30 @@ quote = "To live happily, then, is the same thing as to live according to Nature
 [[questions.evidence]]
 document = "seneca-minor-dialogues/of-a-happy-life"
 quote = "A happy life, therefore, is one which is in accordance with its own nature"
+[[questions.evidence]]
+document = "seneca-minor-dialogues/of-a-happy-life"
+quote = "a happy life consists in a mind which is free, upright, undaunted, and steadfast"
+[[questions.evidence]]
+document = "seneca-minor-dialogues/of-a-happy-life"
+quote = "The happy man, therefore, is he who can make a right judgment in all things"
+[[questions.evidence]]
+document = "seneca-minor-dialogues/of-a-happy-life"
+quote = "True happiness, therefore, consists in virtue"
+[[questions.evidence]]
+document = "seneca-minor-dialogues/of-a-happy-life"
+quote = "a happy life is unchangeable, and is founded upon a true and trustworthy discernment"
+[[questions.evidence]]
+document = "seneca-minor-dialogues/of-a-happy-life"
+quote = "who, thanks to reason, has ceased either to hope or to fear"
+[[questions.evidence]]
+document = "seneca-minor-dialogues/of-a-happy-life"
+quote = "on the day on which he becomes proof against pleasure he also becomes proof against pain"
+[[questions.evidence]]
+document = "seneca-minor-dialogues/of-a-happy-life"
+quote = "an unbroken calm and freedom ensue, when we have driven away all those things which either excite us or alarm us"
+[[questions.evidence]]
+document = "seneca-minor-dialogues/of-consolation-to-helvia"
+quote = "every man is able by himself to make himself happy"
 
 # --- Kant, Fundamental Principles of the Metaphysic of Morals ---------------
 
@@ -176,6 +419,24 @@ quote = "which can be called good, without qualification, except a good will"
 [[questions.evidence]]
 document = "kant-metaphysic-of-morals/first-section"
 quote = "A good will is good not because of what it performs or effects"
+[[questions.evidence]]
+document = "kant-metaphysic-of-morals/first-section"
+quote = "we have not to wait for it to appear first in the result"
+[[questions.evidence]]
+document = "kant-metaphysic-of-morals/first-section"
+quote = "a will which deserves to be highly esteemed for itself and is good without a view to anything further"
+[[questions.evidence]]  # borderline: Aristotle, goods chosen for their own sake
+document = "aristotle-nicomachean-ethics/book-i-chapter-iv"
+quote = "we would choose each of these even if no result were to follow"
+[[questions.evidence]]  # borderline: Aristotle, contemplation
+document = "aristotle-nicomachean-ethics/book-x-chapter-vi"
+quote = "this alone would seem to be rested in for its own sake, since nothing results from it"
+[[questions.evidence]]  # borderline: Aristotle, wisdom good without results
+document = "aristotle-nicomachean-ethics/book-vi-chapter-xii"
+quote = "they must be choice-worthy, even on the supposition that they neither of them produce results"
+[[questions.evidence]]  # borderline: Mill, only pleasure is good in itself
+document = "mill-utilitarianism/chapter-iv"
+quote = "nothing is a good to human beings but in so far as it is either itself pleasurable"
 
 [[questions]]
 id = "kant-universal-law"
@@ -192,6 +453,33 @@ quote = "Act according to a maxim which can at the same time make itself a unive
 [[questions.evidence]]
 document = "kant-metaphysic-of-morals/second-section"
 quote = "Act always on such a maxim as thou canst at the same time will to be a universal law"
+[[questions.evidence]]
+document = "kant-metaphysic-of-morals/first-section"
+quote = "Should I be content that my maxim"
+[[questions.evidence]]
+document = "kant-metaphysic-of-morals/first-section"
+quote = "Canst thou also will that thy maxim should be a universal law? If not, then it must be rejected"
+[[questions.evidence]]
+document = "kant-metaphysic-of-morals/second-section"
+quote = "never to act on any maxim which could not without contradiction be also a universal law"
+[[questions.evidence]]
+document = "kant-metaphysic-of-morals/second-section"
+quote = "Act upon a maxim which, at the same time, involves its own universal validity for every rational being"
+[[questions.evidence]]
+document = "kant-metaphysic-of-morals/second-section"
+quote = "An action that is consistent with the autonomy of the will is permitted"
+[[questions.evidence]]
+document = "kant-metaphysic-of-morals/second-section"
+quote = "He who contemplates suicide should ask himself whether his action can be consistent with the idea of humanity as an end in itself"
+[[questions.evidence]]
+document = "kant-metaphysic-of-morals/second-section"
+quote = "So act as to treat humanity, whether in thine own person or in that of any other"
+[[questions.evidence]]
+document = "kant-metaphysic-of-morals/second-section"
+quote = "Now he inquires whether the maxim of his action could become a universal law of nature"
+[[questions.evidence]]
+document = "kant-metaphysic-of-morals/second-section"
+quote = "This is the canon of the moral appreciation of the action generally"
 
 [[questions]]
 id = "kant-persons-as-ends"
@@ -205,6 +493,9 @@ quote = "any rational being exists as an end in himself, not merely as a means"
 [[questions.evidence]]
 document = "kant-metaphysic-of-morals/second-section"
 quote = "a man is not a thing, that is to say, something which can be used merely as means"
+[[questions.evidence]]
+document = "kant-metaphysic-of-morals/second-section"
+quote = "He who is thinking of making a lying promise to others will see at once that he would be using another man merely as a mean"
 
 # --- Mill, Utilitarianism --------------------------------------------------
 
@@ -217,6 +508,24 @@ quote = "actions are right in proportion as they tend to promote happiness"
 [[questions.evidence]]
 document = "mill-utilitarianism/chapter-ii"
 quote = "the happiness which forms the utilitarian standard of what is right in conduct, is not the agent's own happiness, but that of all concerned"
+[[questions.evidence]]
+document = "mill-utilitarianism/chapter-ii"
+quote = "is necessarily also the standard of morality"
+[[questions.evidence]]
+document = "mill-utilitarianism/chapter-ii"
+quote = "The multiplication of happiness is, according to the utilitarian ethics, the object of virtue"
+[[questions.evidence]]
+document = "mill-utilitarianism/chapter-ii"
+quote = "the motive has nothing to do with the morality of the action"
+[[questions.evidence]]
+document = "mill-utilitarianism/chapter-ii"
+quote = "The morality of the action depends entirely upon the intention"
+[[questions.evidence]]
+document = "mill-utilitarianism/chapter-ii"
+quote = "does not differ only in motive from him who does the same thing from duty or benevolence; the act itself is different"
+[[questions.evidence]]
+document = "mill-utilitarianism/chapter-v"
+quote = "the doctrine that Utility or Happiness is the criterion of right and wrong"
 
 [[questions]]
 id = "mill-higher-pleasures"
@@ -227,6 +536,24 @@ quote = "some kinds of pleasure are more desirable and more valuable than others
 [[questions.evidence]]
 document = "mill-utilitarianism/chapter-ii"
 quote = "better to be Socrates dissatisfied than a fool satisfied"
+[[questions.evidence]]
+document = "mill-utilitarianism/chapter-ii"
+quote = "we are justified in ascribing to the preferred enjoyment a superiority in quality, so far outweighing quantity"
+[[questions.evidence]]
+document = "mill-utilitarianism/chapter-ii"
+quote = "the pleasures derived from the higher faculties to be preferable in kind, apart from the question of intensity"
+[[questions.evidence]]  # borderline: Aristotle: pleasures differ in kind and worth
+document = "aristotle-nicomachean-ethics/book-x-chapter-ii"
+quote = "nor is every kind of it choice-worthy: and that there are some choice-worthy in themselves, differing in kind"
+[[questions.evidence]]  # borderline: Aristotle: pleasures of honourable objects differ from base ones
+document = "aristotle-nicomachean-ethics/book-x-chapter-ii"
+quote = "may we not say that Pleasures differ in kind? those derived from honourable objects, for instance are different from those arising from disgraceful ones"
+[[questions.evidence]]  # borderline: Plato: pleasures differ in reality and truth
+document = "plato-republic/book-ix"
+quote = "will more really and truly enjoy true pleasure"
+[[questions.evidence]]  # borderline: Plato: the philosopher's pleasure is best, judged by experience, wisdom and reason
+document = "plato-republic/book-ix"
+quote = "the pleasure of the intelligent part of the soul is the pleasantest of the three"
 
 [[questions]]
 id = "mill-proof-of-utility"
@@ -234,6 +561,12 @@ question = "How can anyone prove that happiness is worth wanting?"
 [[questions.evidence]]
 document = "mill-utilitarianism/chapter-iv"
 quote = "the sole evidence it is possible to produce that anything is desirable, is that people do actually desire it"
+[[questions.evidence]]
+document = "mill-utilitarianism/chapter-iv"
+quote = "we can have no other proof, and we require no other, that these are the only things desirable"
+[[questions.evidence]]
+document = "mill-utilitarianism/chapter-iv"
+quote = "we have not only all the proof which the case admits of, but all which it is possible to require, that happiness is a good"
 
 [[questions]]
 id = "mill-justice-and-utility"
@@ -247,6 +580,24 @@ quote = "the justice which is grounded on utility to be the chief part, and inco
 [[questions.evidence]]
 document = "mill-utilitarianism/chapter-v"
 quote = "justice is a name for certain moral requirements, which, regarded collectively, stand higher in the scale of social utility"
+[[questions.evidence]]
+document = "mill-utilitarianism/chapter-v"
+quote = "resolve, I conceive, the only real difficulty in the utilitarian theory of morals"
+[[questions.evidence]]
+document = "mill-utilitarianism/chapter-v"
+quote = "the animal desire to repel or retaliate a hurt or damage to oneself, or to those with whom one sympathizes, widened so as to include all persons"
+[[questions.evidence]]
+document = "mill-utilitarianism/chapter-v"
+quote = "though the sentiment does not, whatever is moral in it does"
+[[questions.evidence]]
+document = "mill-utilitarianism/chapter-v"
+quote = "that idea no longer presents itself as a stumbling-block to the utilitarian ethics"
+[[questions.evidence]]
+document = "mill-utilitarianism/chapter-v"
+quote = "what is moral is, the exclusive subordination of it to the social sympathies"
+[[questions.evidence]]
+document = "mill-utilitarianism/chapter-v"
+quote = "Justice remains the appropriate name for certain social utilities which are vastly more important"
 
 # --- Nietzsche, The Genealogy of Morals -------------------------------------
 
@@ -259,6 +610,15 @@ quote = "It was out of this pathos of distance that they first arrogated the rig
 [[questions.evidence]]
 document = "nietzsche-genealogy-of-morals/first-essay-good-and-evil-good-and-bad"
 quote = 'the judgment "good" did not originate among those to whom goodness was shown'
+[[questions.evidence]]
+document = "nietzsche-genealogy-of-morals/first-essay-good-and-evil-good-and-bad"
+quote = 'It is because of this origin that the word "good" is far from having any necessary connection with altruistic acts'
+[[questions.evidence]]
+document = "nietzsche-genealogy-of-morals/first-essay-good-and-evil-good-and-bad"
+quote = "this is the origin of the antithesis of good and bad"
+[[questions.evidence]]
+document = "nietzsche-genealogy-of-morals/first-essay-good-and-evil-good-and-bad"
+quote = 'is the root idea, out of which have necessarily developed "good"'
 
 [[questions]]
 id = "nietzsche-resentment-creates-values"
@@ -266,6 +626,15 @@ question = "How did the bitterness of the powerless give birth to a new morality
 [[questions.evidence]]
 document = "nietzsche-genealogy-of-morals/first-essay-good-and-evil-good-and-bad"
 quote = "The revolt of the slaves in morals begins in the very principle of resentment becoming creative"
+[[questions.evidence]]
+document = "nietzsche-genealogy-of-morals/first-essay-good-and-evil-good-and-bad"
+quote = "the impotence which requites not, is turned to 'goodness,'"
+[[questions.evidence]]
+document = "nietzsche-genealogy-of-morals/first-essay-good-and-evil-good-and-bad"
+quote = 'the slave morality says "no" from the very outset to what is "outside itself,"'
+[[questions.evidence]]
+document = "nietzsche-genealogy-of-morals/first-essay-good-and-evil-good-and-bad"
+quote = 'he has conceived "the evil enemy," the "evil one," and indeed that is the root idea'
 
 [[questions]]
 id = "nietzsche-bad-conscience"
@@ -276,6 +645,21 @@ quote = "All instincts which do not find a vent without, turn inwards"
 [[questions.evidence]]
 document = "nietzsche-genealogy-of-morals/second-essay-guilt-bad-conscience-and-the-like"
 quote = "I regard the bad conscience as the serious illness which man was bound to contract"
+[[questions.evidence]]
+document = "nietzsche-genealogy-of-morals/second-essay-guilt-bad-conscience-and-the-like"
+quote = 'this, only this, is the beginning of the "bad conscience."'
+[[questions.evidence]]
+document = "nietzsche-genealogy-of-morals/second-essay-guilt-bad-conscience-and-the-like"
+quote = 'the turning all these instincts against their own possessors: this is the origin of the "bad conscience."'
+[[questions.evidence]]
+document = "nietzsche-genealogy-of-morals/second-essay-guilt-bad-conscience-and-the-like"
+quote = "this hypothesis of the origin of the bad conscience, that that alteration was no gradual and no voluntary alteration"
+[[questions.evidence]]
+document = "nietzsche-genealogy-of-morals/second-essay-guilt-bad-conscience-and-the-like"
+quote = "invented the bad conscience so as to hurt himself, after the natural outlet for this will to hurt, became blocked"
+[[questions.evidence]]
+document = "nietzsche-genealogy-of-morals/second-essay-guilt-bad-conscience-and-the-like"
+quote = "this fact of an animal ego turning against itself"
 
 # --- Descartes, Discourse on the Method -----------------------------------
 
@@ -308,6 +692,27 @@ quote = "My second maxim was to be as firm and resolute in my actions as I was a
 [[questions.evidence]]
 document = "descartes-discourse-on-method/part-iii"
 quote = "My third maxim was to endeavor always to conquer myself rather than fortune"
+[[questions.evidence]]  # borderline: how he lived during the nine years of doubt
+document = "descartes-discourse-on-method/part-iii"
+quote = "desirous of being a spectator rather than an actor in the plays exhibited on the theater of the world"
+[[questions.evidence]]
+document = "descartes-discourse-on-method/part-iii"
+quote = "to conclude this code of morals, I thought of reviewing the different occupations of men in this life"
+[[questions.evidence]]  # borderline: outwardly an ordinary life while pursuing the design
+document = "descartes-discourse-on-method/part-iii"
+quote = "without in appearance living otherwise than those who, with no other occupation than that of spending their lives agreeably and innocently"
+[[questions.evidence]]
+document = "descartes-discourse-on-method/part-iii"
+quote = "Having thus provided myself with these maxims, and having placed them in reserve along with the truths of faith"
+[[questions.evidence]]
+document = "descartes-discourse-on-method/part-iv"
+quote = "in relation to practice, it is sometimes necessary to adopt, as if above doubt, opinions which we discern to be highly uncertain"
+[[questions.evidence]]  # borderline: why the maxims were adopted
+document = "descartes-discourse-on-method/part-iii"
+quote = "the three preceding maxims were founded singly on the design of continuing the work of self-instruction"
+[[questions.evidence]]
+document = "descartes-discourse-on-method/part-iii"
+quote = "if we consider all external goods as equally beyond our power"
 
 # --- Hume, An Enquiry Concerning Human Understanding -----------------------
 
@@ -317,6 +722,18 @@ question = "Where do all our ideas ultimately come from, according to Hume?"
 [[questions.evidence]]
 document = "hume-enquiry/section-ii"
 quote = "all our ideas or more feeble perceptions are copies of our impressions"
+[[questions.evidence]]
+document = "hume-enquiry/section-vii-part-ii"
+quote = "Every idea is copied from some preceding impression or sentiment"
+[[questions.evidence]]
+document = "hume-enquiry/section-vii-part-i"
+quote = "all our ideas are nothing but copies of our impressions"
+[[questions.evidence]]
+document = "hume-enquiry/section-ii"
+quote = "every idea which we examine is copied from a similar impression"
+[[questions.evidence]]
+document = "hume-enquiry/section-ii"
+quote = "all our impressions are innate, and our ideas not innate"
 
 [[questions]]
 id = "hume-future-like-past"
@@ -330,6 +747,18 @@ quote = "all our experimental conclusions proceed upon the supposition that the 
 [[questions.evidence]]
 document = "hume-enquiry/section-iv-part-ii"
 quote = "all inferences from experience suppose, as their foundation, that the future will resemble the past"
+[[questions.evidence]]
+document = "hume-enquiry/section-vi"
+quote = "Being determined by custom to transfer the past to the future, in all our inferences"
+[[questions.evidence]]
+document = "hume-enquiry/section-iv-part-ii"
+quote = "it is not reasoning which engages us to suppose the past resembling the future"
+[[questions.evidence]]  # borderline: Hobbes: expectation is presumption from experience
+document = "hobbes-leviathan/part-i-of-man-chapter-iii-of-the-consequence-or-trayne-of-imaginations"
+quote = "the Future being but a fiction of the mind, applying the sequels of actions Past, to the actions that are Present"
+[[questions.evidence]]  # borderline: Hobbes: prudence presumes the future from the past
+document = "hobbes-leviathan/part-i-of-man-chapter-iii-of-the-consequence-or-trayne-of-imaginations"
+quote = "Prudence is a Praesumtion of the Future, contracted from the Experience of time Past"
 
 [[questions]]
 id = "hume-miracles"
@@ -340,6 +769,42 @@ quote = "A miracle is a violation of the laws of nature"
 [[questions.evidence]]
 document = "hume-enquiry/section-x-part-i"
 quote = "no testimony is sufficient to establish a miracle, unless the testimony be of such a kind, that its falsehood would be more miraculous"
+[[questions.evidence]]
+document = "hume-enquiry/section-x-part-ii"
+quote = "there never was a miraculous event established on so full an evidence"
+[[questions.evidence]]
+document = "hume-enquiry/section-x-part-ii"
+quote = "compare the instances of the violation of truth in the testimony of men, with those of the violation of the laws of nature by miracles"
+[[questions.evidence]]
+document = "hume-enquiry/section-x-part-ii"
+quote = "no human testimony can have such force as to prove a miracle"
+[[questions.evidence]]  # borderline: reason alone cannot ground belief in miracles
+document = "hume-enquiry/section-x-part-ii"
+quote = "cannot be believed by any reasonable person without one"
+[[questions.evidence]]
+document = "hume-enquiry/section-x-part-ii"
+quote = "there may possibly be miracles, or violations of the usual course of nature, of such a kind as to admit of proof from human testimony"
+[[questions.evidence]]  # borderline: rejecting testimony without disproving it
+document = "hume-enquiry/section-x-part-ii"
+quote = "it was not requisite, in order to reject a fact of this nature, to be able accurately to disprove the testimony"
+[[questions.evidence]]
+document = "hume-enquiry/section-x-part-ii"
+quote = "not only the miracle destroys the credit of testimony, but the testimony destroys itself"
+[[questions.evidence]]  # borderline: rival testimonies cancel
+document = "hume-enquiry/section-x-part-ii"
+quote = "we are to regard their testimony in the same light as if they had mentioned that Mahometan miracle, and had in express terms contradicted it"
+[[questions.evidence]]
+document = "hume-enquiry/section-x-part-ii"
+quote = "what have we to oppose to such a cloud of witnesses, but the absolute impossibility or miraculous nature of the events"
+[[questions.evidence]]
+document = "hume-enquiry/section-x-part-ii"
+quote = "a miracle, supported by any human testimony, was more properly a subject of derision than of argument"
+[[questions.evidence]]
+document = "hume-enquiry/section-x-part-i"
+quote = "If the falsehood of his testimony would be more miraculous, than the event which he relates; then, and not till then"
+[[questions.evidence]]
+document = "hume-enquiry/section-x-part-i"
+quote = "there is proof against proof, of which the strongest must prevail"
 
 # --- Schopenhauer, The World as Will and Idea, Vol. 1 -----------------------
 
@@ -355,6 +820,33 @@ quote = "the world which surrounds him is there only as idea"
 [[questions.evidence]]
 document = "schopenhauer-world-as-will-vol1/first-book-the-world-as-idea"
 quote = "no object without a subject"
+[[questions.evidence]]
+document = "schopenhauer-world-as-will-vol1/first-book-the-world-as-idea"
+quote = "for all that exists, exists only for the subject"
+[[questions.evidence]]
+document = "schopenhauer-world-as-will-vol1/fourth-book-the-world-as-will"
+quote = "the whole of Nature outside the knowing subject, and thus also all other individuals, exist only in its idea"
+[[questions.evidence]]
+document = "schopenhauer-world-as-will-vol1/first-book-the-world-as-idea"
+quote = "As the world as idea exists only through the understanding, so also it exists only for the understanding"
+[[questions.evidence]]
+document = "schopenhauer-world-as-will-vol1/first-book-the-world-as-idea"
+quote = "The whole world of objects is and remains idea, and therefore wholly and for ever determined by the subject"
+[[questions.evidence]]
+document = "schopenhauer-world-as-will-vol1/first-book-the-world-as-idea"
+quote = "if this one were to disappear, then the whole world as idea would cease to be"
+[[questions.evidence]]
+document = "schopenhauer-world-as-will-vol1/first-book-the-world-as-idea"
+quote = "the world of perception exists only through and for it"
+[[questions.evidence]]
+document = "schopenhauer-world-as-will-vol1/first-book-the-world-as-idea"
+quote = "as the object in general is only for the subject, as its idea"
+[[questions.evidence]]  # borderline: the other half of the answer: objects express a thing-in-itself
+document = "schopenhauer-world-as-will-vol1/second-book-the-world-as-will"
+quote = "is not idea, but a thing-in-itself"
+[[questions.evidence]]  # borderline: apart from the idea, only will remains
+document = "schopenhauer-world-as-will-vol1/third-book-the-world-as-idea"
+quote = "As soon as knowledge, the world as idea, is abolished, there remains nothing but mere will, blind effort"
 
 [[questions]]
 id = "schopenhauer-thing-in-itself"
@@ -365,6 +857,24 @@ quote = "What is the thing-in-itself? The will, we have answered"
 [[questions.evidence]]
 document = "schopenhauer-world-as-will-vol1/second-book-the-world-as-will"
 quote = "If, now, this thing-in-itself is the will, as I believe I have fully and convincingly proved it to be"
+[[questions.evidence]]
+document = "schopenhauer-world-as-will-vol1/second-book-the-world-as-will"
+quote = "it is one and the same will which appears"
+[[questions.evidence]]  # borderline: the body as the key to the inner nature
+document = "schopenhauer-world-as-will-vol1/second-book-the-world-as-will"
+quote = "not merely the one side, that of the idea, but also the other side which is called will"
+[[questions.evidence]]
+document = "schopenhauer-world-as-will-vol1/fourth-book-the-world-as-will"
+quote = "the will to live, the kernel and inner nature of that world"
+[[questions.evidence]]
+document = "schopenhauer-world-as-will-vol1/second-book-the-world-as-will"
+quote = "but the will alone is a thing in itself"
+[[questions.evidence]]
+document = "schopenhauer-world-as-will-vol1/fourth-book-the-world-as-will"
+quote = "this multiplicity does not concern the will as thing-in-itself, but only its phenomena"
+[[questions.evidence]]
+document = "schopenhauer-world-as-will-vol1/fourth-book-the-world-as-will"
+quote = "the will to live, which constitutes the inner nature of everything and lives in all"
 
 [[questions]]
 id = "schopenhauer-music"
@@ -372,6 +882,36 @@ question = "Why does music move us more deeply than painting or poetry?"
 [[questions.evidence]]
 document = "schopenhauer-world-as-will-vol1/third-book-the-world-as-idea"
 quote = "Music is as direct an objectification and copy of the whole will as the world itself"
+[[questions.evidence]]
+document = "schopenhauer-world-as-will-vol1/third-book-the-world-as-idea"
+quote = "it never expresses the phenomenon, but only the inner nature, the in-itself of all phenomena, the will itself"
+[[questions.evidence]]
+document = "schopenhauer-world-as-will-vol1/third-book-the-world-as-idea"
+quote = "the effect of music is stronger, quicker, more necessary and infallible"
+[[questions.evidence]]
+document = "schopenhauer-world-as-will-vol1/third-book-the-world-as-idea"
+quote = "it is not a copy of the phenomenon, or, more accurately, the adequate objectivity of will, but is the direct copy of the will itself"
+[[questions.evidence]]  # borderline: its universality gives music its worth
+document = "schopenhauer-world-as-will-vol1/third-book-the-world-as-idea"
+quote = "music always expresses only the quintessence of life and its events, never these themselves"
+[[questions.evidence]]
+document = "schopenhauer-world-as-will-vol1/third-book-the-world-as-idea"
+quote = "always according to the thing-in-itself, not the phenomenon, the inmost soul, as it were, of the phenomenon"
+[[questions.evidence]]
+document = "schopenhauer-world-as-will-vol1/third-book-the-world-as-idea"
+quote = "music, on the other hand, gives the inmost kernel which precedes all forms, or the heart of things"
+[[questions.evidence]]
+document = "schopenhauer-world-as-will-vol1/third-book-the-world-as-idea"
+quote = "it restores to us all the emotions of our inmost nature, but entirely without reality and far removed from their pain"
+[[questions.evidence]]
+document = "schopenhauer-world-as-will-vol1/third-book-the-world-as-idea"
+quote = "the inner nature, the in-itself of the world, which we think under the concept of will"
+[[questions.evidence]]  # borderline: melody mirrors the will's striving
+document = "schopenhauer-world-as-will-vol1/fourth-book-the-world-as-will"
+quote = "the universal expression of the inmost history of the self-conscious will"
+[[questions.evidence]]  # borderline: Plato: music reaches the inward places of the soul
+document = "plato-republic/book-iii"
+quote = "musical training is a more potent instrument than any other, because rhythm and harmony find their way into the inward places of the soul"
 
 [[questions]]
 id = "schopenhauer-pain-and-boredom"
@@ -382,6 +922,33 @@ quote = "its life swings like a pendulum backwards and forwards between pain and
 [[questions.evidence]]
 document = "schopenhauer-world-as-will-vol1/fourth-book-the-world-as-will"
 quote = "no satisfaction is lasting, rather it is always merely the starting-point of a new effort"
+[[questions.evidence]]
+document = "schopenhauer-world-as-will-vol1/fourth-book-the-world-as-will"
+quote = "The wish is, in its nature, pain; the attainment soon begets satiety"
+[[questions.evidence]]
+document = "schopenhauer-world-as-will-vol1/third-book-the-world-as-idea"
+quote = "No attained object of desire can give lasting satisfaction"
+[[questions.evidence]]
+document = "schopenhauer-world-as-will-vol1/fourth-book-the-world-as-will"
+quote = "All satisfaction, or what is commonly called happiness, is always really and essentially only negative"
+[[questions.evidence]]
+document = "schopenhauer-world-as-will-vol1/fourth-book-the-world-as-will"
+quote = "the will, of which human life, like every phenomenon, is the objectification, is a striving without aim or end"
+[[questions.evidence]]
+document = "schopenhauer-world-as-will-vol1/fourth-book-the-world-as-will"
+quote = "just on this account it cannot be lasting satisfaction and gratification"
+[[questions.evidence]]  # borderline: Mill: rapture cannot last, though a satisfied life can
+document = "mill-utilitarianism/chapter-ii"
+quote = "A state of exalted pleasure lasts only moments"
+[[questions.evidence]]  # borderline: Seneca: pleasure soon cloys
+document = "seneca-minor-dialogues/of-a-happy-life"
+quote = "pleasure dies at the very moment when it charms us most"
+[[questions.evidence]]  # borderline: Aristotle: pleasure dulls as activity slackens
+document = "aristotle-nicomachean-ethics/book-x-chapter-iv"
+quote = "the act of Working is not of the kind it was at first, but careless, and so the Pleasure too is dulled"
+[[questions.evidence]]  # borderline: Aristotle: human faculties cannot work unintermittingly
+document = "aristotle-nicomachean-ethics/book-x-chapter-iv"
+quote = "How is it then that no one feels Pleasure continuously?"
 
 # --- Hobbes, Leviathan (1651 spelling) -------------------------------------
 
@@ -400,6 +967,12 @@ quote = "Where there is no common Power, there is no Law: where no Law, no Injus
 [[questions.evidence]]
 document = "hobbes-leviathan/part-i-of-man-chapter-xiii-of-the-naturall-condition-of-mankind-as-concerning-their-felicity-and-misery"
 quote = "men have no pleasure, (but on the contrary a great deale of griefe) in keeping company, where there is no power able to over-awe them all"
+[[questions.evidence]]
+document = "hobbes-leviathan/part-i-of-man-chapter-xiii-of-the-naturall-condition-of-mankind-as-concerning-their-felicity-and-misery"
+quote = "it may be perceived what manner of life there would be, where there were no common Power to feare"
+[[questions.evidence]]  # borderline: without a common power men war on each other
+document = "hobbes-leviathan/part-ii-of-common-wealth-chapter-xvii-of-the-causes-generation-and-definition-of-a-common-wealth"
+quote = "when there is no common enemy, they make warre upon each other, for their particular interests"
 
 [[questions]]
 id = "hobbes-first-law-of-nature"
@@ -407,6 +980,12 @@ question = "What is the first and most basic law of nature for Hobbes?"
 [[questions.evidence]]
 document = "hobbes-leviathan/part-i-of-man-chapter-xiv-of-the-first-and-second-naturall-lawes-and-of-contracts"
 quote = "To seek Peace, and follow it"
+[[questions.evidence]]
+document = "hobbes-leviathan/part-i-of-man-chapter-xiv-of-the-first-and-second-naturall-lawes-and-of-contracts"
+quote = "From this Fundamentall Law of Nature, by which men are commanded to endeavour Peace"
+[[questions.evidence]]
+document = "hobbes-leviathan/part-i-of-man-chapter-xv-of-other-lawes-of-nature"
+quote = "the fundamentall Law of Nature, which commandeth To Seek Peace"
 
 [[questions]]
 id = "hobbes-sovereign"
@@ -420,6 +999,15 @@ quote = "is the foresight of their own preservation, and of a more contented lif
 [[questions.evidence]]
 document = "hobbes-leviathan/part-ii-of-common-wealth-chapter-xvii-of-the-causes-generation-and-definition-of-a-common-wealth"
 quote = "Covenants, without the Sword, are but Words, and of no strength to secure a man at all"
+[[questions.evidence]]
+document = "hobbes-leviathan/part-ii-of-common-wealth-chapter-xviii-of-the-rights-of-soveraignes-by-institution"
+quote = "Covenants being but words, and breath, have no force to oblige, contain, constrain, or protect any man, but what it has from the publique Sword"
+[[questions.evidence]]  # borderline: men submit for protection, else war of every man
+document = "hobbes-leviathan/part-ii-of-common-wealth-chapter-xix-of-the-severall-kinds-of-common-wealth-by-institution-and-of-succession-to-the-soveraigne-power"
+quote = "every man having equall right to submit himselfe to such as he thinks best able to protect him"
+[[questions.evidence]]  # borderline: sovereignty by acquisition: submission to avoid death
+document = "hobbes-leviathan/part-ii-of-common-wealth-chapter-xx-of-dominion-paternall-and-despoticall"
+quote = "by the Submission of each particular, to avoyd death or bonds"
 
 # --- Mill, On Liberty ------------------------------------------------------
 
@@ -435,6 +1023,24 @@ quote = "As soon as any part of a person's conduct affects prejudicially the int
 [[questions.evidence]]
 document = "mill-on-liberty/chapter-v"
 quote = "the individual is not accountable to society for his actions, in so far as these concern the interests of no person but himself"
+[[questions.evidence]]
+document = "mill-on-liberty/chapter-iv"
+quote = "to society, the part which chiefly interests society"
+[[questions.evidence]]  # borderline: the principle applied to trade
+document = "mill-on-liberty/chapter-v"
+quote = "does what affects the interest of other persons, and of society in general; and thus his conduct, in principle, comes within the jurisdiction of society"
+[[questions.evidence]]
+document = "mill-on-liberty/chapter-i"
+quote = "comprehending all that portion of a person's life and conduct which affects only himself"
+[[questions.evidence]]
+document = "mill-on-liberty/chapter-iv"
+quote = "These conditions society is justified in enforcing, at all costs to those who endeavour to withhold fulfilment"
+[[questions.evidence]]
+document = "mill-on-liberty/chapter-v"
+quote = "purely self-regarding misconduct cannot properly be meddled with in the way of prevention or punishment"
+[[questions.evidence]]
+document = "mill-on-liberty/chapter-v"
+quote = "coming thus within the category of offences against others may rightfully be prohibited"
 
 [[questions]]
 id = "mill-silencing-opinions"
@@ -445,6 +1051,33 @@ quote = "the peculiar evil of silencing the expression of an opinion"
 [[questions.evidence]]
 document = "mill-on-liberty/chapter-ii"
 quote = "it will be held as a dead dogma, not a living truth"
+[[questions.evidence]]
+document = "mill-on-liberty/chapter-ii"
+quote = "All silencing of discussion is an assumption of infallibility"
+[[questions.evidence]]
+document = "mill-on-liberty/chapter-ii"
+quote = "though the silenced opinion be an error, it may, and very commonly does, contain a portion of truth"
+[[questions.evidence]]
+document = "mill-on-liberty/chapter-ii"
+quote = "Complete liberty of contradicting and disproving our opinion, is the very condition which justifies us in assuming its truth for purposes of action"
+[[questions.evidence]]
+document = "mill-on-liberty/chapter-ii"
+quote = "the nonconforming opinion is needed to supply the remainder of the truth"
+[[questions.evidence]]  # borderline: suppressing for utility still presumes truth
+document = "mill-on-liberty/chapter-ii"
+quote = "The truth of an opinion is part of its utility"
+[[questions.evidence]]
+document = "mill-on-liberty/chapter-ii"
+quote = "First, if any opinion is compelled to silence, that opinion may, for aught we can certainly know, be true"
+[[questions.evidence]]
+document = "mill-on-liberty/chapter-ii"
+quote = "Truth, thus held, is but one superstition the more"
+[[questions.evidence]]
+document = "mill-on-liberty/chapter-ii"
+quote = "every opinion which embodies somewhat of the portion of truth which the common opinion omits, ought to be considered precious"
+[[questions.evidence]]
+document = "mill-on-liberty/chapter-ii"
+quote = "the assumption of infallibility is merely shifted from one point to another"
 
 [[questions]]
 id = "mill-individuality"
@@ -458,3 +1091,30 @@ quote = "has no need of any other faculty than the ape-like one of imitation"
 [[questions.evidence]]
 document = "mill-on-liberty/chapter-iii"
 quote = "Precisely because the tyranny of opinion is such as to make eccentricity a reproach"
+[[questions.evidence]]
+document = "mill-on-liberty/chapter-iii"
+quote = "his own mode of laying out his existence is the best, not because it is the best in itself, but because it is his own mode"
+[[questions.evidence]]
+document = "mill-on-liberty/chapter-iii"
+quote = "the mere example of nonconformity, the mere refusal to bend the knee to custom, is itself a service"
+[[questions.evidence]]
+document = "mill-on-liberty/chapter-iii"
+quote = "so is it that there should be different experiments of living"
+[[questions.evidence]]
+document = "mill-on-liberty/chapter-i"
+quote = "Mankind are greater gainers by suffering each other to live as seems good to themselves"
+[[questions.evidence]]  # borderline: voluntary choice is evidence of one's good
+document = "mill-on-liberty/chapter-v"
+quote = "his good is on the whole best provided for by allowing him to take his own means of pursuing it"
+[[questions.evidence]]
+document = "mill-on-liberty/chapter-iii"
+quote = "by dint of not following their own nature, they have no nature to follow"
+[[questions.evidence]]
+document = "mill-on-liberty/chapter-iii"
+quote = "unless there is a corresponding diversity in their modes of life, they neither obtain their fair share of happiness"
+[[questions.evidence]]
+document = "mill-on-liberty/chapter-iii"
+quote = "He who does anything because it is the custom, makes no choice"
+[[questions.evidence]]
+document = "mill-on-liberty/chapter-iii"
+quote = "originality is a valuable element in human affairs"

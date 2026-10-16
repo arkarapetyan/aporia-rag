@@ -222,10 +222,14 @@ all), including two errors: Hume poses the problem of induction in Section IV, a
 quote sat in a fragment that does not say what it is about. Passages a model finds in words no
 search anticipated are found by reading its retrieved chunks (*pooling*, as in TREC):
 `evaluate --dump data/eval/retrievals.jsonl` saves every retrieved chunk with its verdicts.
+Judging the 808 chunks the three bake-off models retrieved added 217 passages (301 in all), and
+the best model's passage Hit@5 rose from 57% to 93%: most of the gap had been missing evidence.
+The pool covers those three models only, so before comparing a new model or a reranker, judge
+the chunks it retrieves that are not in that dump; otherwise every new answer it finds is a miss.
 
 **Questions in a reader's words.** The questions avoid the source's wording, so they measure
 meaning rather than word overlap: a bag-of-words baseline (feature hashing, the test embedder)
-finds the passage in its top 5 for only 15% of them. With 40 questions, one question is 2.5
+finds a passage in its top 5 for only 25% of them. With 40 questions, one question is 2.5
 points, so smaller differences between models are noise.
 
 **The evaluation depends on a `Searcher` protocol** (`search(question, *, k)`) declared next to
