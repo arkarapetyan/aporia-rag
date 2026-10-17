@@ -38,6 +38,7 @@ from aporia_rag.domain.errors import ConfigurationError
 from aporia_rag.domain.models import EmbeddingSpace
 from aporia_rag.domain.ports import ChatModel, Chunker, Embedder, VectorStore
 from aporia_rag.generation.generator import Generator
+from aporia_rag.grading.relevance import RelevanceGrader
 from aporia_rag.indexing.indexer import Indexer
 from aporia_rag.ingestion.chunker import RecursiveChunker
 from aporia_rag.retrieval.retriever import Retriever
@@ -166,6 +167,10 @@ class Container:
     def generator(self) -> Generator:
         return Generator(self.chat_model)
 
+    @cached_property
+    def relevance_grader(self) -> RelevanceGrader:
+        return RelevanceGrader(self.chat_model)
+
     def _owned[T](self, component: T) -> T:
         if isinstance(component, _Closeable):
             self._resources.callback(component.close)
@@ -199,6 +204,7 @@ def _ollama_chat_model(settings: Settings, transport: httpx.BaseTransport | None
     return OllamaChatModel(
         _ollama_client(settings, transport),
         settings.chat.model,
+        context_length=settings.chat.context_length,
         keep_alive=settings.ollama.keep_alive,
     )
 

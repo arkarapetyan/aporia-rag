@@ -87,7 +87,7 @@ layers = [
     "aporia_rag.cli",
     "aporia_rag.bootstrap",
     # `|`: independent siblings, which must not import each other either.
-    "aporia_rag.adapters | aporia_rag.config | aporia_rag.evaluation | aporia_rag.generation | aporia_rag.indexing | aporia_rag.ingestion | aporia_rag.retrieval",
+    "aporia_rag.adapters | aporia_rag.config | aporia_rag.evaluation | aporia_rag.generation | aporia_rag.grading | aporia_rag.indexing | aporia_rag.ingestion | aporia_rag.retrieval",
     "aporia_rag.domain",
 ]
 
@@ -100,6 +100,7 @@ source_modules = [
     "aporia_rag.domain",
     "aporia_rag.evaluation",
     "aporia_rag.generation",
+    "aporia_rag.grading",
     "aporia_rag.indexing",
     "aporia_rag.ingestion",
     "aporia_rag.retrieval",

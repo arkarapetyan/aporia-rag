@@ -345,7 +345,7 @@ later graph tests is proven to behave like the real store.
 
 | # | Test |
 |---|---|
-| 9.1 | Defaults: Ollama at `http://localhost:11434`, embedding `ollama` / `qwen3-embedding:0.6b`, chat `ollama` / `qwen3.5:35b-a3b-q4_K_M`, Chroma index in `data/index`, corpus in `data/raw`, chunks 1000/150 |
+| 9.1 | Defaults: Ollama at `http://localhost:11434`, embedding `ollama` / `qwen3-embedding:0.6b`, chat `ollama` / `qwen3.5:35b-a3b-q4_K_M` with a context of 8192 tokens, Chroma index in `data/index`, corpus in `data/raw`, chunks 1000/150 |
 | 9.2 | Nested environment variables override defaults (`APORIA_EMBEDDING__MODEL=...`) |
 | 9.3 | Values are read from a `.env` file, and real environment variables win over it |
 | 9.4 | Invalid values are rejected: batch size 0, chunk overlap not smaller than chunk size |
@@ -442,6 +442,8 @@ later graph tests is proven to behave like the real store.
 | 13.3 | Filters are passed through to the store |
 | 13.4 | An embedder and a store from different embedding spaces are refused |
 | 13.5 | `k` must be positive and the question non-blank |
+| 13.6 | `best_per_author` embeds the question once and returns each author's best chunk, for the `limit` authors whose best chunk scores highest, best first |
+| 13.7 | `best_per_author` leaves out an author without chunks; `limit` must be positive and the question non-blank |
 
 ## Component 14: Composition root (`aporia_rag.bootstrap`)
 
@@ -455,8 +457,8 @@ later graph tests is proven to behave like the real store.
 | 14.6 | The `Container` builds each component once, and only when first used (so an unusable provider fails only when it is needed) |
 | 14.7 | An index built through the container's indexer is searchable through its retriever (they share the embedder and the store) |
 | 14.8 | The container is a context manager: leaving it closes the components it built that hold connections, even when the block raises; a container that built nothing closes nothing |
-| 14.9 | Builds an Ollama chat model from the settings (host, model, `keep_alive`); an unknown chat provider raises `ConfigurationError` listing the available ones |
-| 14.10 | The container's generator uses its chat model, built once and only when first used (so `search` never needs one), and closed on leaving the container |
+| 14.9 | Builds an Ollama chat model from the settings (host, model, `keep_alive`, context length); an unknown chat provider raises `ConfigurationError` listing the available ones |
+| 14.10 | The container's generator and relevance grader share its chat model, built once and only when first used (so `search` never needs one), and closed on leaving the container |
 
 ## Component 15: `index` and `search` commands (`aporia_rag.cli`)
 
@@ -468,6 +470,7 @@ later graph tests is proven to behave like the real store.
 | 15.4 | `search` prints ranked results with similarity, citation, chunk id and a snippet |
 | 15.5 | `search --author` restricts results to that author (any part of the name, any case); an unknown author is an error listing the authors |
 | 15.6 | `search` on an empty index says to run `aporia-rag index` and exits 1 |
+| 15.7 | `search --all-authors` shows the best passage of each author, best first; it cannot be combined with `--author` |
 | 15.7 | Ollama not running gives a one-line error and exit code 1, no traceback |
 | 15.8 | `index` before `fetch` says to run `aporia-rag fetch` |
 | 15.9 | A corrupt corpus file is a one-line error naming the work, like every other expected failure |
@@ -536,7 +539,7 @@ the union of all systems' top results is judged).
 
 ---
 
-## Answering questions: components 18-20
+## Answering questions: components 18-21
 
 The baseline RAG pipeline: retrieve the `k` passages most similar to the question (component 13),
 then have a chat model answer from them (the generation step: the "G" in RAG). Like the retriever it
@@ -555,6 +558,15 @@ system prompt differently (a message with the `system` role in Ollama and OpenAI
 role and each adapter maps it. The tests use `ScriptedChatModel`, a fake that records the messages
 it receives and returns a fixed reply, and `FakeOllamaServer`, which now also answers `/api/chat`.
 
+**Survey of all authors.** `--all-authors` replaces the top `k` with the best passage of each author
+(`best_per_author` over the whole manifest), the grader keeps the relevant ones, and the generator's
+survey is a structured reply with exactly one paragraph per passage, which the generator heads with
+the author and the passage number. Asked in the prompt, numbered citations were a tendency: the
+first live run of L.6 returned two correct paragraphs and no number. Eleven passages (the 12 works
+have 11 authors), the instructions and eleven paragraphs come to up to about 4,500 tokens, more than
+Ollama's default context of 4096 on an 8 GB GPU, so the chat model gets a configured context length
+on every request.
+
 ## Component 18: Ollama chat model (`aporia_rag.adapters.ollama`)
 
 | # | Test |
@@ -564,6 +576,10 @@ it receives and returns a fixed reply, and `FakeOllamaServer`, which now also an
 | 18.3 | An empty reply raises `ProviderError` (there is nothing to show; a thinking model that only thought, say) |
 | 18.4 | A model that is not pulled, Ollama not running and any other failure raise the same errors as for the embedder (10.16-10.18) |
 | 18.5 | `close()` releases its HTTP connections |
+| 18.6 | `chat_structured` sends the messages with the schema's JSON schema as `format`, thinking off and temperature 0 (a decision must be repeatable) |
+| 18.7 | `chat_structured` returns the reply parsed into the schema |
+| 18.8 | A structured reply that does not fit the schema raises `ProviderError` naming the schema; failures are translated as for `chat` |
+| 18.9 | Every request sets the configured context length (`num_ctx`), the same for `chat` and `chat_structured`: Ollama reloads a model whose context length changes |
 
 ## Component 19: Generator (`aporia_rag.generation.generator`)
 
@@ -571,6 +587,7 @@ it receives and returns a fixed reply, and `FakeOllamaServer`, which now also an
 |---|---|
 | 19.1 | The model receives the system prompt, then one user message: the passages numbered from 1 in the order given, each headed by its citation and followed by its exact text, and the question last |
 | 19.2 | The answer is the model's reply, with the passages as its sources, in the order of their numbers |
+| 19.3 | `survey` sends the same user message with the survey prompt as a structured request for exactly one paragraph per passage, and returns one section per passage, headed by the passage's author and number (`Immanuel Kant [2]`), with the passages as its sources |
 
 ## Component 20: `ask` command (`aporia_rag.cli`)
 
@@ -581,7 +598,25 @@ it receives and returns a fixed reply, and `FakeOllamaServer`, which now also an
 | 20.3 | `ask` on an empty index says to run `aporia-rag index` and never calls the chat model |
 | 20.4 | A chat model that is not pulled is a one-line error naming `ollama pull <model>` |
 | 20.5 | `ask` releases its connections, the chat model's included |
-| 20.6 | `ask` ends with how long the answer took, split into retrieval and generation (a scripted clock makes the numbers exact) |
+| 20.6 | `ask` ends with how long the answer took, split into retrieval, grading, generation and the search for other authors (a scripted clock makes the numbers exact) |
+| 20.7 | `ask` grades every retrieved passage: the model answers from the relevant ones only, numbered from 1, and the passages left out are listed as not relevant |
+| 20.8 | When no passage is relevant, `ask` says so and never asks the model for an answer |
+| 20.9 | After the answer, `ask` grades the best passage of the other authors (those with no passage among the retrieved ones, at most 4) and lists the relevant ones as other authors who discuss the question |
+| 20.10 | With `--author`, `ask` does not look for other authors |
+| 20.11 | `ask --all-authors` grades the best passage of every author, prints the survey of the relevant ones, lists the others as not relevant, and does not look for other authors (the question is embedded once) |
+
+## Component 21: Relevance grader (`aporia_rag.grading.relevance`)
+
+Retrieval returns the passages *nearest* to a question, which is not the same as the passages that
+*answer* it: a Hobbes chapter on honour is near a question about the dishonourable, and every
+retrieved passage gets a paragraph in the answer. The grader asks the chat model about each passage
+separately, with a structured yes/no reply, and keeps those judged relevant. One call per passage
+keeps every prompt short and every verdict independent of the other passages.
+
+| # | Test |
+|---|---|
+| 21.1 | Each passage is graded in its own call: the grading system prompt, then one user message with the passage's citation, its exact text and the question last, asking for a `RelevanceVerdict` |
+| 21.2 | `relevant` returns the passages judged relevant, in their original order |
 
 ## Architecture rules (`tests/unit/test_architecture.py`, run in the default suite)
 
@@ -592,7 +627,7 @@ instead of waiting for a code review to notice it.
 
 | # | Test |
 |---|---|
-| A.1 | Layers: `cli` > `bootstrap` > {`adapters`, `config`, `evaluation`, `generation`, `indexing`, `ingestion`, `retrieval`} > `domain`; nothing imports a layer above it, and the middle packages do not import each other |
+| A.1 | Layers: `cli` > `bootstrap` > {`adapters`, `config`, `evaluation`, `generation`, `grading`, `indexing`, `ingestion`, `retrieval`} > `domain`; nothing imports a layer above it, and the middle packages do not import each other |
 | A.2 | Provider libraries (`chromadb`, `ollama`) are imported only by `adapters` (and so are reachable only through `bootstrap`) |
 
 ## Real-model tests (opt-in: `make test-llm`; need Ollama with the configured embedding and chat models)
@@ -603,3 +638,5 @@ instead of waiting for a code review to notice it.
 | L.2 | The same text embedded as a query and as a passage gives different vectors (the prompt format is applied) |
 | L.3 | A question about the good will ranks a Kant passage above a Hobbes passage |
 | L.4 | The configured chat model answers a question from three passages: the answer cites at least one of them by a number in range, and contains no thinking (`<think>`) |
+| L.5 | The relevance grader, with the configured chat model, keeps the Kant passage and leaves out the Hobbes passage for a question about what is good without qualification |
+| L.6 | The configured chat model surveys a Kant and a Mill passage on what makes something morally good: Kant's section speaks of the good will, Mill's of happiness |

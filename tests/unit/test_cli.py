@@ -15,7 +15,8 @@ import pytest
 
 from aporia_rag.cli import main
 from aporia_rag.config import Settings, StorageSettings
-from support.fakes import FakeOllamaServer, refusing_transport
+from aporia_rag.generation.generator import SURVEY_PROMPT
+from support.fakes import RELEVANT, FakeOllamaServer, refusing_transport
 
 BASE_URL = "https://mirror.test"
 MIRROR_FILES = {
@@ -328,6 +329,38 @@ def test_search_on_an_empty_index_says_to_run_index(
     assert server.requests == []  # no point embedding a question with nothing to search
 
 
+def test_search_all_authors_shows_the_best_passage_of_each_author(
+    index_manifest: Path, settings: Settings, capsys: pytest.CaptureFixture[str]
+) -> None:  # 15.7
+    server = FakeOllamaServer()
+    _index(index_manifest, settings, server)
+    capsys.readouterr()
+
+    exit_code = _run(
+        "search", "What can be called good without qualification?", "--all-authors",
+        manifest=index_manifest, settings=settings, transport=server.transport,
+    )  # fmt: skip
+
+    assert exit_code == 0
+    shown = re.findall(r"^\d+\. .*\[(.+)\]$", capsys.readouterr().out, re.MULTILINE)
+    assert shown == [
+        "kant-groundwork/first-section#0",  # Kant's best; his second section is left out
+        "hobbes-leviathan/chapter-xiii#0",
+    ]
+
+
+def test_search_cannot_take_all_authors_and_one_author(
+    index_manifest: Path, settings: Settings, capsys: pytest.CaptureFixture[str]
+) -> None:  # 15.7
+    with pytest.raises(SystemExit):
+        _run(
+            "search", "virtue", "--author", "kant", "--all-authors",
+            manifest=index_manifest, settings=settings, transport=FakeOllamaServer().transport,
+        )  # fmt: skip
+
+    assert "not allowed with argument --author" in capsys.readouterr().err
+
+
 def test_ollama_not_running_is_a_one_line_error(
     index_manifest: Path, settings: Settings, capsys: pytest.CaptureFixture[str]
 ) -> None:  # 15.7
@@ -620,7 +653,7 @@ def test_ask_reports_how_long_retrieval_and_generation_took(
     server = FakeOllamaServer()
     _index(index_manifest, settings, server)
     capsys.readouterr()
-    clock = iter([100.0, 100.4, 112.9])  # start, passages retrieved, answer generated
+    clock = iter([100.0, 100.4, 106.4, 112.9, 115.0])  # start, retrieved, graded, answered, others
     monkeypatch.setattr("aporia_rag.cli.perf_counter", lambda: next(clock))
 
     exit_code = _run(
@@ -630,8 +663,147 @@ def test_ask_reports_how_long_retrieval_and_generation_took(
 
     assert exit_code == 0
     assert capsys.readouterr().out.endswith(
-        "\nanswered in 12.9s (retrieval 0.4s, generation 12.5s)\n"
+        "\nanswered in 15.0s (retrieval 0.4s, grading 6.0s, generation 6.5s, other authors 2.1s)\n"
     )
+
+
+def _not_hobbes(prompt: str) -> str:
+    return f'{{"relevant": {str("Thomas Hobbes" not in prompt).lower()}}}'
+
+
+def test_ask_answers_from_the_relevant_passages_and_lists_those_left_out(
+    index_manifest: Path, settings: Settings, capsys: pytest.CaptureFixture[str]
+) -> None:  # 20.7
+    server = FakeOllamaServer(reply=REPLY, structured_reply=_not_hobbes)
+    _index(index_manifest, settings, server)
+    capsys.readouterr()
+
+    exit_code = _run(
+        "ask", GOOD_WILL_QUESTION, "-k", "3",
+        manifest=index_manifest, settings=settings, transport=server.transport,
+    )  # fmt: skip
+
+    assert exit_code == 0
+    assert len(server.structured_requests) == 3  # one verdict per retrieved passage
+    [chat] = server.chat_requests
+    prompt = chat["messages"][-1]["content"]
+    assert "Thomas Hobbes" not in prompt
+    assert _passage_headers(prompt) == [
+        "[1] Immanuel Kant, Fundamental Principles of the Metaphysic of Morals, First Section",
+        "[2] Immanuel Kant, Fundamental Principles of the Metaphysic of Morals, Second Section",
+    ]
+    output = capsys.readouterr().out
+    assert _passage_headers(output) == _passage_headers(prompt)
+    assert (
+        "\nLeft out as not relevant:\n"
+        "- Thomas Hobbes, Leviathan, Chapter XIII (hobbes-leviathan/chapter-xiii#0)\n"
+    ) in output
+
+
+def test_ask_with_no_relevant_passage_says_so_without_an_answer(
+    index_manifest: Path, settings: Settings, capsys: pytest.CaptureFixture[str]
+) -> None:  # 20.8
+    server = FakeOllamaServer(structured_reply=lambda prompt: '{"relevant": false}')
+    _index(index_manifest, settings, server)
+    capsys.readouterr()
+
+    exit_code = _run(
+        "ask", "What is a picture theory of meaning?", "-k", "2",
+        manifest=index_manifest, settings=settings, transport=server.transport,
+    )  # fmt: skip
+
+    assert exit_code == 0
+    assert server.chat_requests == []  # graded, but never asked for an answer
+    assert capsys.readouterr().out.startswith(
+        "None of the 2 passages found answers this question.\n"
+    )
+
+
+HOBBES_POINTER = (
+    "\nOther authors who discuss this:\n"
+    "- Thomas Hobbes, Leviathan, Chapter XIII (hobbes-leviathan/chapter-xiii#0)\n"
+)
+
+
+@pytest.mark.parametrize("hobbes_is_relevant", [True, False])
+def test_ask_lists_the_other_authors_who_discuss_the_question(
+    index_manifest: Path,
+    settings: Settings,
+    capsys: pytest.CaptureFixture[str],
+    hobbes_is_relevant: bool,
+) -> None:  # 20.9
+    verdict = f'{{"relevant": {str(hobbes_is_relevant).lower()}}}'
+    server = FakeOllamaServer(
+        structured_reply=lambda prompt: verdict if "Thomas Hobbes" in prompt else RELEVANT
+    )
+    _index(index_manifest, settings, server)
+    capsys.readouterr()
+
+    exit_code = _run(
+        "ask", GOOD_WILL_QUESTION, "-k", "1",  # retrieves Kant only
+        manifest=index_manifest, settings=settings, transport=server.transport,
+    )  # fmt: skip
+
+    assert exit_code == 0
+    assert len(server.structured_requests) == 2  # the Kant passage, then Hobbes's best passage
+    assert (HOBBES_POINTER in capsys.readouterr().out) is hobbes_is_relevant
+
+
+def test_ask_for_one_author_does_not_look_for_others(
+    index_manifest: Path, settings: Settings, capsys: pytest.CaptureFixture[str]
+) -> None:  # 20.10
+    server = FakeOllamaServer()
+    _index(index_manifest, settings, server)
+    capsys.readouterr()
+
+    exit_code = _run(
+        "ask", GOOD_WILL_QUESTION, "-k", "1", "--author", "kant",
+        manifest=index_manifest, settings=settings, transport=server.transport,
+    )  # fmt: skip
+
+    assert exit_code == 0
+    assert len(server.structured_requests) == 1  # the Kant passage only
+    assert "Other authors" not in capsys.readouterr().out
+
+
+def _not_hobbes_then_survey(prompt: str) -> str:
+    if prompt.startswith("[1] "):  # the survey: the numbered passages, then the question
+        return '{"paragraphs": ["Only a good will is good without qualification."]}'
+    return _not_hobbes(prompt)
+
+
+def test_ask_all_authors_surveys_the_relevant_best_passage_of_each_author(
+    index_manifest: Path, settings: Settings, capsys: pytest.CaptureFixture[str]
+) -> None:  # 20.11
+    server = FakeOllamaServer(structured_reply=_not_hobbes_then_survey)
+    _index(index_manifest, settings, server)
+    indexed = len(server.requests)
+    capsys.readouterr()
+
+    exit_code = _run(
+        "ask", GOOD_WILL_QUESTION, "--all-authors",
+        manifest=index_manifest, settings=settings, transport=server.transport,
+    )  # fmt: skip
+
+    assert exit_code == 0
+    embedded = [body for body in server.requests[indexed:] if "input" in body]
+    assert len(embedded) == 1  # the question, once: no search for other authors
+    assert server.chat_requests == []
+    *verdicts, survey = server.structured_requests
+    assert len(verdicts) == 2  # Kant's best passage and Hobbes's
+    assert survey["messages"][0]["content"] == SURVEY_PROMPT
+    assert _passage_headers(survey["messages"][-1]["content"]) == [
+        "[1] Immanuel Kant, Fundamental Principles of the Metaphysic of Morals, First Section"
+    ]
+    output = capsys.readouterr().out
+    assert output.startswith(
+        "Immanuel Kant [1]\nOnly a good will is good without qualification.\n\nPassages:\n"
+    )
+    assert (
+        "\nLeft out as not relevant:\n"
+        "- Thomas Hobbes, Leviathan, Chapter XIII (hobbes-leviathan/chapter-xiii#0)\n"
+    ) in output
+    assert "Other authors" not in output
 
 
 def test_ask_releases_both_models_connections(

@@ -27,8 +27,8 @@ place where a provider's API meets our interfaces. What must hold is that nothin
 **Enforced, not just documented.** The rules are [import-linter](https://import-linter.readthedocs.io)
 contracts in `pyproject.toml`, checked by `tests/unit/test_architecture.py` on every test run:
 
-- *layers*: `cli` > `bootstrap` > {`adapters`, `config`, `evaluation`, `generation`, `indexing`,
-  `ingestion`, `retrieval`} > `domain`. Nothing imports a layer above it, and the middle packages do not import each other:
+- *layers*: `cli` > `bootstrap` > {`adapters`, `config`, `evaluation`, `generation`, `grading`,
+  `indexing`, `ingestion`, `retrieval`} > `domain`. Nothing imports a layer above it, and the middle packages do not import each other:
   the indexer reaches Chroma only through the `VectorStore` port. `graph` gets its place in this
   contract when the package is created (it will sit above `retrieval`, which it calls).
 - *provider-libraries*: `chromadb` and `ollama` are imported by `adapters` only, directly or
@@ -118,7 +118,7 @@ The application is written against four ports (`domain/ports.py`):
 | `Chunker` | `chunk(document) -> list[Chunk]` | `RecursiveChunker` |
 | `Embedder` | `space`, `embed_documents(passages)`, `embed_query(text)` | `OllamaEmbedder` (tests: `HashingEmbedder`) |
 | `VectorStore` | `space`, `upsert`, `query(vector, k, filters)`, `fingerprints`, `delete`, `clear`, `count` | `ChromaVectorStore` (tests: `InMemoryVectorStore`) |
-| `ChatModel` | `chat(messages) -> str`, never empty | `OllamaChatModel` (tests: `ScriptedChatModel`) |
+| `ChatModel` | `chat(messages) -> str`, never empty; `chat_structured(messages, schema)` -> an instance of the schema, at temperature 0 | `OllamaChatModel` (tests: `ScriptedChatModel`) |
 
 They are `typing.Protocol`s: any class with these methods qualifies, without inheriting from
 anything. The ports speak only in domain types (`Passage`, `Chunk`, plain `list[float]`
@@ -127,8 +127,11 @@ into the domain's (`ProviderUnavailableError`, `ModelNotAvailableError`...), so 
 `adapters/` can tell which provider is in use.
 
 A port is added together with its first caller and its first adapter, never ahead of them.
-`ChatModel` arrived with the generator, so it is "messages in, reply out" and no more; structured
-output (the graders' JSON verdicts) is added when the graders need it. Providers take the system
+`ChatModel` arrived with the generator as "messages in, reply out"; `chat_structured` arrived with
+its first caller, the relevance grader, which needs a verdict that code can rely on, not prose. The
+reply must fit a pydantic schema: Ollama constrains generation to the schema's JSON schema (the
+`format` parameter; the major provider APIs have an equivalent), and the reply is validated, so a
+reply that does not fit is a `ProviderError`, never a guess. Providers take the system
 prompt differently (a `system` message in Ollama and OpenAI, a separate parameter in Anthropic, a
 `system_instruction` in Gemini), so `ChatMessage` states the role and each adapter maps it.
 
@@ -219,10 +222,10 @@ at most reorder near-ties.
 
 ## Generation
 
-**The baseline is plain RAG.** `aporia-rag ask` retrieves the `k` passages most similar to the
-question, exactly as `search` does, and `generation.Generator` has the chat model answer from them.
-No grading, rewriting or web search: those are the corrective graph's, and the evaluation will
-measure what each adds over this baseline.
+**From plain RAG to graded RAG.** `aporia-rag ask` retrieves the `k` passages most similar to the
+question, exactly as `search` does, keeps those the relevance grader judges relevant (see Grading),
+and `generation.Generator` has the chat model answer from them. Plain RAG, the baseline the
+evaluation compares against, is the same pipeline without the grader.
 
 **Numbered passages, numbered citations.** The model gets the passages numbered from 1, each headed
 by its citation, then the question (the usual advice for long prompts: the material first, the
@@ -244,6 +247,73 @@ a setting when something needs it.
 
 **An empty reply is an error.** The `ChatModel` port promises a non-empty reply, so the adapter
 raises `ProviderError` rather than letting an empty answer be printed (or, later, graded).
+
+**Answer or survey.** `Generator.answer` writes a few paragraphs from the passages that bear on the
+question; `Generator.survey` covers passages that come one per author (`ask --all-authors`). Both
+send the same numbered passages, and the rules that keep a reply faithful (attribution, quotes) are
+written once and shared. A survey's form is the code's, not the model's: it is a structured reply
+(`SurveyReply`) with exactly as many paragraphs as passages, the count in the JSON schema and
+checked again on validation, and each paragraph becomes a section headed by its author and passage
+number (`Immanuel Kant [1]`). The first version asked for the paragraphs and the numbers in the
+prompt; three surveys in the CLI came back right, but the first live test (L.6) got two correct
+paragraphs and no number at all. A prompt rule is a tendency, so what must always hold is now
+structure. A structured reply also runs at temperature 0, so the same passages give the same survey.
+The survey prompt also forbids what the model knows of an author from elsewhere: with one passage
+per author, that is the obvious temptation.
+
+**A fixed context length.** Ollama's default context is 4096 tokens on an 8 GB GPU. A survey of all
+11 authors (the 12 works include two by Mill: 11 passages of 230 to 300 tokens, the instructions,
+and 11 paragraphs) needs up to about 4,500, and past the limit Ollama silently drops part of the prompt. The adapter therefore sends
+`num_ctx` from `ChatSettings.context_length` (8192) with every request, the grader's included:
+Ollama reloads a model whose context length changes, so a different value per call would mean a
+reload per call. The cost is the larger cache for the attention layers, small for
+`qwen3.5:35b-a3b`, whose layers are mostly linear attention.
+
+## Grading
+
+**Nearest is not relevant.** Retrieval returns the passages nearest to the question: a Hobbes
+chapter on honour is near a question about the dishonourable, and every passage given to the
+generator got its own paragraph, often misread. Prompt rules did not stop that, so
+`grading.RelevanceGrader` checks each retrieved passage before generation and keeps the ones the
+chat model judges relevant: those that state, explain or argue something the question asks about.
+
+**One structured call per passage.** The verdict is `{"relevant": true}` or `false`, a
+`RelevanceVerdict` read through `chat_structured`. One call per passage, not one for all: each
+prompt stays short, well inside the model's context, and each verdict depends on its passage alone.
+Temperature 0 makes the verdict repeatable: the same passage, the same decision.
+
+**Visible decisions.** `ask` lists the passages it left out as not relevant under the ones it used,
+and when no passage is relevant it says so and does not ask for an answer at all. That replaces the
+worst failure seen so far: an answer written from the model's memory, with citations of passages
+that do not support it.
+
+**Pointers to the other authors.** Top-k retrieval lets one author fill every slot: the corpus has
+63 Aristotle chunks about friendship and 6 from Cicero, so "What is friendship?" retrieves only
+Aristotle. After the answer, `ask` therefore gives each author with no passage among those found a
+search of their own (`Retriever.best_per_author`: the question is embedded once, then one filtered
+search per author), sends the best passage of the 4 strongest to the grader, and lists the ones it
+accepts as "Other authors who discuss this". The grader decides, not the similarity score: Plato
+has 110 chunks with "friend" in them, nearly all of them "my friend" as a form of address. The
+limit of 4 bounds the extra wait (one model call each, 2-4 s on an 8 GB laptop GPU). No planner is
+needed: the search uses the question as written, and `--author` turns the pointers off. On the
+first three questions (friendship, pleasure, justice) all 9 pointers were relevant, and for "What is
+justice?" they brought back Plato, whom the top 5 had missed. The limit has a price: Plato's
+passages on pleasure as the good (Republic VI) did not appear for "Is pleasure the highest good?".
+
+**A survey of all authors.** `--all-authors` replaces the top `k` with the best passage of every
+author (`best_per_author` over the whole manifest), grades them all, and has the generator write
+one paragraph per relevant author. The authors whose passage the grader leaves out are listed with
+it, as in the normal answer: the claim is "this author's best passage does not answer the
+question", not "this author never discusses it", because one passage per author is all that was
+checked. A survey costs one verdict per author (11 calls, about 25 s) and a longer answer; there
+are no pointers, since every author has been looked at. `search --all-authors` shows the same
+passages without the model, to see what each author's best match is. On the first three surveys
+(friendship, pleasure, justice: 48-63 s each) every paragraph kept to its author's passage, and 14
+of the 16 passages left out were clearly not relevant. The other two show the limits of one passage
+per author: Plato's best match on pleasure (Republic IX, the truest pleasures are those reason
+guides) was left out while a similar Mill passage was kept, and Republic VI, where Socrates rejects
+"pleasure is the good", is not Plato's best match at all. Likewise Hume's "friendship is the chief
+joy of human life" (Section XI) is not his best match for "What is friendship?".
 
 ## Evaluation
 

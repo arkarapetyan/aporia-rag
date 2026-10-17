@@ -58,6 +58,12 @@ class ChatSettings(_Section):
         default="qwen3.5:35b-a3b-q4_K_M",
         description="A mixture of experts: ~3B of 35B parameters per token. Needs ~22 GB of RAM.",
     )
+    context_length: int = Field(
+        default=8192,
+        gt=0,
+        description="Tokens the model sees at once, prompt and reply. A survey of all authors "
+        "needs ~4,500.",
+    )
 
 
 class ChunkingSettings(_Section):

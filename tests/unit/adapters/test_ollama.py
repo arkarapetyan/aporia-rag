@@ -1,4 +1,4 @@
-"""Tests for aporia_rag.adapters.ollama (test plan: 10.14-10.20 and 18.1-18.5).
+"""Tests for aporia_rag.adapters.ollama (test plan: 10.14-10.21 and 18.1-18.8).
 
 The adapter talks to a real `ollama.Client`; only the network underneath it
 is replaced, by `FakeOllamaServer` behind an `httpx.MockTransport`. So these
@@ -8,6 +8,7 @@ tests also check that we use the client library the way it expects.
 import httpx
 import ollama
 import pytest
+from pydantic import BaseModel
 
 from aporia_rag.adapters.ollama import OllamaChatModel, OllamaEmbedder
 from aporia_rag.adapters.prompt_formats import QwenInstructFormat
@@ -164,10 +165,10 @@ CONVERSATION = [
 
 
 def _chat_model(
-    transport: httpx.BaseTransport, *, keep_alive: str | None = None
+    transport: httpx.BaseTransport, *, context_length: int = 4096, keep_alive: str | None = None
 ) -> OllamaChatModel:
     client = ollama.Client(host="http://ollama.test:11434", transport=transport)
-    return OllamaChatModel(client, CHAT_MODEL, keep_alive=keep_alive)
+    return OllamaChatModel(client, CHAT_MODEL, context_length=context_length, keep_alive=keep_alive)
 
 
 def test_chat_sends_the_messages_in_order_with_thinking_off() -> None:  # 18.1
@@ -235,3 +236,58 @@ def test_chat_model_close_releases_the_connections() -> None:  # 18.5
     model.close()
 
     assert server.transport.closed
+
+
+class Verdict(BaseModel):
+    relevant: bool
+
+
+def test_structured_chat_sends_the_schema_with_thinking_off_and_temperature_zero() -> None:
+    # 18.6
+    server = FakeOllamaServer()
+
+    _chat_model(server.transport).chat_structured(CONVERSATION, Verdict)
+
+    [request] = server.requests
+    assert request["messages"][-1] == {"role": "user", "content": "What is the good will?"}
+    assert request["format"] == Verdict.model_json_schema()
+    assert request["think"] is False
+    assert request["options"]["temperature"] == 0  # the same passage, the same verdict
+
+
+def test_structured_chat_returns_the_reply_parsed_into_the_schema() -> None:  # 18.7
+    server = FakeOllamaServer(structured_reply=lambda prompt: '{"relevant": false}')
+
+    verdict = _chat_model(server.transport).chat_structured(CONVERSATION, Verdict)
+
+    assert verdict == Verdict(relevant=False)
+
+
+@pytest.mark.parametrize(
+    "reply", ['{"relevant": "perhaps"}', "Yes, it is relevant."], ids=["wrong-field", "prose"]
+)
+def test_a_structured_reply_that_does_not_fit_is_a_provider_error(reply: str) -> None:  # 18.8
+    server = FakeOllamaServer(structured_reply=lambda prompt: reply)
+
+    with pytest.raises(ProviderError, match=f"{CHAT_MODEL}.*Verdict"):
+        _chat_model(server.transport).chat_structured(CONVERSATION, Verdict)
+
+
+def test_structured_chat_failures_are_translated_like_chat() -> None:  # 18.8
+    server = FakeOllamaServer(models=[MODEL])
+
+    with pytest.raises(ModelNotAvailableError, match=f"ollama pull {CHAT_MODEL}"):
+        _chat_model(server.transport).chat_structured(CONVERSATION, Verdict)
+
+
+def test_every_request_sets_the_same_context_length() -> None:  # 18.9
+    server = FakeOllamaServer()
+    model = _chat_model(server.transport, context_length=8192)
+
+    model.chat(CONVERSATION)
+    model.chat_structured(CONVERSATION, Verdict)
+
+    # A different context length would make Ollama reload the model between the two.
+    chat, structured = server.requests
+    assert chat["options"] == {"num_ctx": 8192}
+    assert structured["options"] == {"num_ctx": 8192, "temperature": 0}

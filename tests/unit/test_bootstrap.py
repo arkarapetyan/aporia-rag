@@ -218,7 +218,7 @@ def test_builds_an_ollama_chat_model_from_the_settings() -> None:  # 14.9
     settings = Settings(
         _env_file=None,
         ollama=OllamaSettings(host="http://gpu-box:11434", keep_alive="30m"),
-        chat=ChatSettings(model="llama3.1:8b"),
+        chat=ChatSettings(model="llama3.1:8b", context_length=16384),
     )
 
     model = build_chat_model(settings, transport=server.transport)
@@ -228,6 +228,7 @@ def test_builds_an_ollama_chat_model_from_the_settings() -> None:  # 14.9
     assert reply == "Virtue is a mean [1]."
     [request] = server.requests
     assert (request["model"], request["keep_alive"]) == ("llama3.1:8b", "30m")
+    assert request["options"]["num_ctx"] == 16384
 
 
 def test_unknown_chat_provider_lists_the_available_ones() -> None:  # 14.9
@@ -246,17 +247,21 @@ def test_searching_never_builds_a_chat_model(tmp_path: Path) -> None:  # 14.10
         _ = container.generator  # ...only for what answers questions
 
 
-def test_the_generator_uses_the_containers_chat_model_and_it_is_closed(
+def test_the_generator_and_grader_share_the_containers_chat_model_and_it_is_closed(
     tmp_path: Path,
 ) -> None:  # 14.10
     server = FakeOllamaServer(reply="Only a good will [1].")
     passage = RetrievedChunk(chunk=make_chunk("kant/first-section#0"), score=0.5)
+    question = "Is anything good without qualification?"
 
     with Container(_container_settings(tmp_path), transport=server.transport) as container:
         assert container.chat_model is container.chat_model
         assert container.generator is container.generator
-        answer = container.generator.answer("Is anything good without qualification?", [passage])
+        assert container.relevance_grader is container.relevance_grader
+        kept = container.relevance_grader.relevant(question, [passage])
+        answer = container.generator.answer(question, kept)
         assert not server.transport.closed
 
     assert answer.text == "Only a good will [1]."
-    assert server.transport.closes == 1  # the chat model's client; nothing else was built
+    assert len(server.structured_requests) == 1  # the verdict went through the same model
+    assert server.transport.closes == 1  # one chat model client; nothing else was built

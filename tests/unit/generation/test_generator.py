@@ -1,11 +1,11 @@
-"""Tests for aporia_rag.generation.generator (test plan: 19.1-19.2).
+"""Tests for aporia_rag.generation.generator (test plan: 19.1-19.3).
 
 The chat model is a `ScriptedChatModel`, so each test sees exactly what the
 model was sent and decides what it answers.
 """
 
 from aporia_rag.domain.models import Answer, ChatMessage, RetrievedChunk
-from aporia_rag.generation.generator import SYSTEM_PROMPT, Generator
+from aporia_rag.generation.generator import ANSWER_PROMPT, SURVEY_PROMPT, Generator
 from support.builders import make_chunk
 from support.fakes import ScriptedChatModel
 
@@ -36,7 +36,7 @@ def test_the_model_gets_the_numbered_cited_passages_and_then_the_question() -> N
     Generator(model).answer(QUESTION, [HOBBES, KANT])
 
     [[system, user]] = model.conversations
-    assert system == ChatMessage(role="system", content=SYSTEM_PROMPT)
+    assert system == ChatMessage(role="system", content=ANSWER_PROMPT)
     assert user == ChatMessage(
         role="user",
         content=(
@@ -56,3 +56,24 @@ def test_the_answer_is_the_reply_with_the_passages_as_its_numbered_sources() -> 
 
     assert answer == Answer(text="Only a good will [2].", sources=(HOBBES, KANT))
     assert answer.sources[2 - 1] == KANT  # the passage the answer cites as [2]
+
+
+def test_a_survey_has_one_section_per_passage_headed_by_its_author_and_number() -> None:
+    # 19.3
+    model = ScriptedChatModel(
+        structured_reply=lambda prompt: '{"paragraphs": ["War of all.", " A good will.\\n"]}'
+    )
+    generator = Generator(model)
+
+    survey = generator.survey(QUESTION, [HOBBES, KANT])
+    generator.answer(QUESTION, [HOBBES, KANT])
+
+    [surveyed, answered] = model.conversations
+    assert surveyed == [ChatMessage(role="system", content=SURVEY_PROMPT), answered[1]]
+    [schema] = model.schemas
+    paragraphs = schema.model_json_schema()["properties"]["paragraphs"]
+    assert (paragraphs["minItems"], paragraphs["maxItems"]) == (2, 2)  # none skipped or merged
+    assert survey == Answer(
+        text="Thomas Hobbes [1]\nWar of all.\n\nImmanuel Kant [2]\nA good will.",
+        sources=(HOBBES, KANT),
+    )

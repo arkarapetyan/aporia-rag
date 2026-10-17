@@ -18,6 +18,8 @@ from collections.abc import Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Final, Protocol
 
+from pydantic import BaseModel
+
 from aporia_rag.domain.errors import IndexMismatchError, VectorDimensionError
 from aporia_rag.domain.models import (
     ChatMessage,
@@ -77,6 +79,15 @@ class ChatModel(Protocol):
 
     def chat(self, messages: Sequence[ChatMessage]) -> str:
         """The model's reply: never empty (an empty reply is a `ProviderError`)."""
+        ...
+
+    def chat_structured[M: BaseModel](self, messages: Sequence[ChatMessage], schema: type[M]) -> M:
+        """The model's reply as an instance of `schema`, for decisions such as verdicts.
+
+        Asked as repeatably as the provider allows (temperature 0): the same
+        messages should give the same decision. A reply that does not fit
+        the schema is a `ProviderError`.
+        """
         ...
 
 

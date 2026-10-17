@@ -3,7 +3,7 @@
     aporia-rag fetch                 download the corpus into data/raw
     aporia-rag index [--rebuild]     embed the corpus into the vector index
     aporia-rag search QUESTION       show the passages retrieval finds for a question
-    aporia-rag ask QUESTION          answer a question from those passages, citing them
+    aporia-rag ask QUESTION          answer from the relevant passages, citing them
     aporia-rag evaluate [--model M]  measure retrieval on the gold questions [--dump PATH]
 
 Each command parses its arguments, asks the `Container` for the components
@@ -48,6 +48,9 @@ from aporia_rag.ingestion.loader import iter_documents
 type _Command = Callable[[argparse.Namespace, Container], int]
 
 _SNIPPET_LENGTH = 200
+# How many other authors `ask` grades after an answer. Each verdict is one
+# model call (2-4 s on an 8 GB laptop GPU), so this bounds the extra wait.
+_OTHER_AUTHORS = 4
 
 
 class CommandError(AporiaError):
@@ -129,10 +132,11 @@ def _parser() -> argparse.ArgumentParser:
 
     ask = commands.add_parser(
         "ask",
-        help="answer a question from the retrieved passages, citing them",
+        help="answer a question from the relevant retrieved passages, citing them",
         description=(
-            "Retrieve the passages most similar to the question, as `search` does, and have "
-            "the chat model answer from them, citing each passage by its number."
+            "Retrieve the passages most similar to the question, as `search` does, keep the "
+            "ones the chat model judges relevant, and have it answer from them, citing each "
+            "passage by its number. With --all-authors, the answer has a paragraph per author."
         ),
     )
     _add_question_options(ask)
@@ -173,10 +177,19 @@ def _parser() -> argparse.ArgumentParser:
 def _add_question_options(command: argparse.ArgumentParser) -> None:
     command.add_argument("question")
     command.add_argument(
-        "-k", type=_positive_int, default=5, help="how many passages (default: %(default)s)"
+        "-k",
+        type=_positive_int,
+        default=5,
+        help="how many passages (default: %(default)s; --all-authors takes one per author)",
     )
-    command.add_argument(
+    scope = command.add_mutually_exclusive_group()
+    scope.add_argument(
         "--author", help="only this author's works (any part of the name, e.g. 'kant')"
+    )
+    scope.add_argument(
+        "--all-authors",
+        action="store_true",
+        help="the best passage of each author, instead of the best passages overall",
     )
     _add_manifest_option(command)
 
@@ -257,23 +270,32 @@ def _print_progress(progress: WorkProgress) -> None:
 
 
 def _search(args: argparse.Namespace, container: Container) -> int:
-    for rank, result in enumerate(_retrieve(args, container), start=1):
+    works = load_manifest(args.manifest).works
+    for rank, result in enumerate(_retrieve(args, container, works), start=1):
         chunk = result.chunk
         print(f"{rank}. {result.score:.3f}  {chunk.metadata.citation}  [{chunk.id}]")
         print(f"   {_snippet(chunk.text)}")
     return 0
 
 
-def _retrieve(args: argparse.Namespace, container: Container) -> list[RetrievedChunk]:
+def _retrieve(
+    args: argparse.Namespace, container: Container, works: Sequence[WorkSpec]
+) -> list[RetrievedChunk]:
     """The passages for the question, as `search` shows them and `ask` answers from them."""
-    works = load_manifest(args.manifest).works
     filters = None if args.author is None else {"author": _resolve_author(args.author, works)}
     _require_index(container)
+    if args.all_authors:
+        authors = _authors(works)
+        return container.retriever.best_per_author(args.question, authors, limit=len(authors))
     return container.retriever.search(args.question, k=args.k, filters=filters)
 
 
+def _authors(works: Sequence[WorkSpec]) -> list[str]:
+    return sorted({work.author for work in works})
+
+
 def _resolve_author(name: str, works: Sequence[WorkSpec]) -> str:
-    authors = sorted({work.author for work in works})
+    authors = _authors(works)
     matches = [author for author in authors if name.casefold() in author.casefold()]
     if len(matches) != 1:
         raise CommandError(
@@ -305,20 +327,59 @@ def _require_index(container: Container) -> None:
 
 
 def _ask(args: argparse.Namespace, container: Container) -> int:
+    works = load_manifest(args.manifest).works
     started = perf_counter()
-    passages = _retrieve(args, container)
+    found = _retrieve(args, container, works)
     retrieved = perf_counter()
-    answer = container.generator.answer(args.question, passages)
+    relevant = container.relevance_grader.relevant(args.question, found)
+    graded = perf_counter()
+    if relevant:
+        write = container.generator.survey if args.all_authors else container.generator.answer
+        answer = write(args.question, relevant)
+        print(answer.text)
+        print("\nPassages:")
+        for number, source in enumerate(answer.sources, start=1):
+            print(f"[{number}] {_label(source)}")
+        left_out = [passage for passage in found if passage not in relevant]
+        if left_out:
+            print("\nLeft out as not relevant:")
+            for passage in left_out:
+                print(f"- {_label(passage)}")
+    else:
+        print(f"None of the {len(found)} passages found answers this question.")
     answered = perf_counter()
-    print(answer.text)
-    print("\nPassages:")
-    for number, source in enumerate(answer.sources, start=1):
-        print(f"[{number}] {source.chunk.metadata.citation} ({source.chunk.id})")
+    authors_chosen = args.author is not None or args.all_authors
+    others = [] if authors_chosen else _other_authors(args.question, container, works, found)
+    if others:
+        print("\nOther authors who discuss this:")
+        for passage in others:
+            print(f"- {_label(passage)}")
+    pointed = perf_counter()
     print(
-        f"\nanswered in {answered - started:.1f}s "
-        f"(retrieval {retrieved - started:.1f}s, generation {answered - retrieved:.1f}s)"
+        f"\nanswered in {pointed - started:.1f}s (retrieval {retrieved - started:.1f}s, "
+        f"grading {graded - retrieved:.1f}s, generation {answered - graded:.1f}s, "
+        f"other authors {pointed - answered:.1f}s)"
     )
     return 0
+
+
+def _other_authors(
+    question: str, container: Container, works: Sequence[WorkSpec], found: Sequence[RetrievedChunk]
+) -> list[RetrievedChunk]:
+    """The best relevant passage of each author who had no passage among those found.
+
+    Top-k retrieval can fill every slot with one author (Aristotle has 63
+    chunks on friendship, Cicero 6), so each other author gets a search of
+    their own; the grader, not the similarity score, decides who is listed.
+    """
+    present = {passage.chunk.metadata.author for passage in found}
+    others = [author for author in _authors(works) if author not in present]
+    candidates = container.retriever.best_per_author(question, others, limit=_OTHER_AUTHORS)
+    return container.relevance_grader.relevant(question, candidates)
+
+
+def _label(passage: RetrievedChunk) -> str:
+    return f"{passage.chunk.metadata.citation} ({passage.chunk.id})"
 
 
 # --------------------------------------------------------------------------

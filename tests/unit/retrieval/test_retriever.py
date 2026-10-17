@@ -85,3 +85,61 @@ def test_blank_question_is_rejected(
     with pytest.raises(ValueError, match="blank"):
         retriever.search("   ")
     assert embedder.query_calls == []
+
+
+# --------------------------------------------------------------------------
+# best_per_author (13.6-13.7)
+# --------------------------------------------------------------------------
+
+KANT_SECOND = make_chunk(
+    "kant/second-section#0", "Everything in nature works according to laws.", index=1
+)
+MILL = make_chunk(
+    "mill/chapter-ii#0",
+    "Actions are right as they tend to promote happiness, and a good will is useful.",
+    author="John Stuart Mill",
+    title="Utilitarianism",
+    section="Chapter II",
+)
+AUTHORS = ["Immanuel Kant", "Thomas Hobbes", "John Stuart Mill"]
+GOOD_WILL = "Is a good will good without qualification?"
+
+
+@pytest.fixture
+def three_authors(embedder: HashingEmbedder) -> Retriever:
+    store = InMemoryVectorStore(embedder.space)
+    store.upsert(
+        [
+            IndexRecord(chunk=chunk, vector=hash_vector(chunk.text), fingerprint="f")
+            for chunk in (KANT, KANT_SECOND, HOBBES, MILL)
+        ]
+    )
+    return Retriever(embedder, store)
+
+
+def test_best_per_author_returns_the_strongest_authors_best_chunks(
+    three_authors: Retriever, embedder: HashingEmbedder
+) -> None:  # 13.6
+    every_author = three_authors.best_per_author(GOOD_WILL, AUTHORS, limit=3)
+    strongest_two = three_authors.best_per_author(GOOD_WILL, AUTHORS, limit=2)
+
+    assert [result.chunk for result in every_author] == [KANT, MILL, HOBBES]  # one chunk each
+    assert [result.chunk for result in strongest_two] == [KANT, MILL]
+    assert embedder.query_calls == [GOOD_WILL, GOOD_WILL]  # once per call, not per author
+
+
+def test_best_per_author_leaves_out_an_author_without_chunks(three_authors: Retriever) -> None:
+    # 13.7
+    results = three_authors.best_per_author(GOOD_WILL, ["René Descartes", "Thomas Hobbes"], limit=2)
+
+    assert [result.chunk for result in results] == [HOBBES]
+
+
+@pytest.mark.parametrize(
+    ("question", "limit", "message"), [("good will", 0, "limit"), ("  ", 2, "blank")]
+)
+def test_best_per_author_needs_a_positive_limit_and_a_question(
+    three_authors: Retriever, question: str, limit: int, message: str
+) -> None:  # 13.7
+    with pytest.raises(ValueError, match=message):
+        three_authors.best_per_author(question, AUTHORS, limit=limit)

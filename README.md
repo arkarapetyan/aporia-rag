@@ -86,6 +86,7 @@ uv run aporia-rag index           # embed them into the vector index in data/ind
 uv run aporia-rag search "Is anything good without qualification?" -k 5
 uv run aporia-rag search "What is justice?" --author plato
 uv run aporia-rag ask "Is anything good without qualification?"
+uv run aporia-rag ask "What is friendship?" --all-authors
 uv run aporia-rag evaluate        # Hit@k and MRR of retrieval on 40 gold questions
 make check                        # lint, strict type-check, tests with coverage: what CI runs
 make help                         # list all targets
@@ -93,9 +94,12 @@ make help                         # list all targets
 
 `index` only embeds what is new or changed, so running it again is cheap; `index --rebuild`
 starts over. `search` shows what retrieval alone finds, with similarity scores and citations.
-`ask` has the chat model answer from those passages, citing them as `[1]`, `[2]`... and listing
-them under the answer, with the time retrieval and generation took: plain RAG, the baseline the
-corrective agent has to beat.
+`ask` keeps the passages the chat model judges relevant and has it answer from them, citing them as
+`[1]`, `[2]`...; under the answer it lists the passages used, the ones left out as not relevant, the
+other authors in the corpus who discuss the question, and the time each step took. When no passage
+is relevant, it says so instead of answering. `ask --all-authors` grades the best passage of every
+author and answers with one section per author, headed by the author and the passage number
+(about a minute on a laptop).
 
 ## Configuration
 
@@ -139,7 +143,8 @@ write the component, then run the full quality gate. Test lists live in
 - [x] Embeddings + Chroma vector store, incremental indexing, `aporia-rag index` and `search`
 - [x] Retrieval evaluation on 40 gold questions and an embedding model bake-off (`aporia-rag evaluate`)
 - [x] Baseline RAG (retrieve then generate), end to end: `aporia-rag ask`
-- [ ] Relevance grader + query rewriter
+- [x] Relevance grader, pointers to other authors, survey of all authors (`ask --all-authors`)
+- [ ] Query rewriter
 - [ ] Web search fallback
 - [ ] Groundedness and answer-relevance graders
 - [ ] Full corrective graph with retry caps

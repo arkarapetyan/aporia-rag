@@ -10,10 +10,11 @@ transport. Both adapters translate the client's failures the same way, in
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from http import HTTPStatus
-from typing import Final
+from typing import Any, Final
 
 import httpx
 import ollama
+from pydantic import BaseModel, ValidationError
 
 from aporia_rag.adapters.embedding import BatchingEmbedder, EmbeddingPurpose
 from aporia_rag.adapters.prompt_formats import PromptFormat
@@ -27,6 +28,8 @@ from aporia_rag.domain.ports import Vector
 
 # Ollama runs a model with this option on the CPU only (no layers on the GPU).
 _ON_CPU: Final = {"num_gpu": 0}
+# Always the most likely token: the same messages give the same decision.
+_REPEATABLE: Final = {"temperature": 0}
 
 
 class OllamaEmbedder(BatchingEmbedder):
@@ -86,11 +89,24 @@ class OllamaEmbedder(BatchingEmbedder):
 
 
 class OllamaChatModel:
-    """A `ChatModel` backed by an Ollama model such as `qwen3.5:35b-a3b`."""
+    """A `ChatModel` backed by an Ollama model such as `qwen3.5:35b-a3b`.
 
-    def __init__(self, client: ollama.Client, model: str, *, keep_alive: str | None = None) -> None:
+    Every request sets the same context length. Ollama's default can be as
+    small as 4096 tokens, too few for a survey of all the authors, and Ollama
+    reloads a model whose context length changes from one request to the next.
+    """
+
+    def __init__(
+        self,
+        client: ollama.Client,
+        model: str,
+        *,
+        context_length: int,
+        keep_alive: str | None = None,
+    ) -> None:
         self._client = client
         self._model = model
+        self._context_length = context_length
         self._keep_alive = keep_alive
 
     def close(self) -> None:
@@ -98,6 +114,26 @@ class OllamaChatModel:
         _close(self._client)
 
     def chat(self, messages: Sequence[ChatMessage]) -> str:
+        return self._reply(messages)
+
+    def chat_structured[M: BaseModel](self, messages: Sequence[ChatMessage], schema: type[M]) -> M:
+        # Ollama constrains generation to the JSON schema, so the reply is
+        # valid JSON; whether it fits the schema is still checked.
+        reply = self._reply(messages, format=schema.model_json_schema(), options=_REPEATABLE)
+        try:
+            return schema.model_validate_json(reply)
+        except ValidationError as error:
+            raise ProviderError(
+                f"Ollama's {self._model} replied {reply!r}, which is not a valid {schema.__name__}"
+            ) from error
+
+    def _reply(
+        self,
+        messages: Sequence[ChatMessage],
+        *,
+        format: dict[str, Any] | None = None,
+        options: dict[str, Any] | None = None,
+    ) -> str:
         with _translated_errors(self._model):
             response = self._client.chat(
                 model=self._model,
@@ -108,6 +144,8 @@ class OllamaChatModel:
                 # otherwise reason first, which takes several times as long;
                 # models that cannot think are not affected.
                 think=False,
+                format=format,
+                options={"num_ctx": self._context_length, **(options or {})},
                 keep_alive=self._keep_alive,
             )
         reply = (response.message.content or "").strip()

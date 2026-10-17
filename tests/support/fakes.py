@@ -15,6 +15,7 @@ from collections.abc import Callable, Collection, Sequence
 from typing import Any, Final
 
 import httpx
+from pydantic import BaseModel
 
 from aporia_rag.config import ChatSettings, EmbeddingSettings
 from aporia_rag.domain.models import ChatMessage, EmbeddingSpace, Passage, RetrievedChunk
@@ -141,16 +142,40 @@ def _matches(record: IndexRecord, filters: MetadataFilter | None) -> bool:
     return all(metadata.get(field) == value for field, value in (filters or {}).items())
 
 
-class ScriptedChatModel:
-    """A `ChatModel` that gives a fixed reply and records every conversation it receives."""
+RELEVANT: Final = '{"relevant": true}'
 
-    def __init__(self, reply: str = "Only a good will is good without qualification [1].") -> None:
+
+def always_relevant(prompt: str) -> str:
+    """A structured reply that grades every passage relevant."""
+    return RELEVANT
+
+
+class ScriptedChatModel:
+    """A `ChatModel` that gives scripted replies and records every conversation it receives.
+
+    `chat` always returns `reply`; `chat_structured` parses the JSON that
+    `structured_reply` returns for the last message of the conversation.
+    """
+
+    def __init__(
+        self,
+        reply: str = "Only a good will is good without qualification [1].",
+        *,
+        structured_reply: Callable[[str], str] = always_relevant,
+    ) -> None:
         self.reply = reply
+        self.structured_reply = structured_reply
         self.conversations: list[list[ChatMessage]] = []
+        self.schemas: list[type[BaseModel]] = []
 
     def chat(self, messages: Sequence[ChatMessage]) -> str:
         self.conversations.append(list(messages))
         return self.reply
+
+    def chat_structured[M: BaseModel](self, messages: Sequence[ChatMessage], schema: type[M]) -> M:
+        self.conversations.append(list(messages))
+        self.schemas.append(schema)
+        return schema.model_validate_json(self.structured_reply(messages[-1].content))
 
 
 class RecordingTransport(httpx.MockTransport):
@@ -172,7 +197,9 @@ class FakeOllamaServer:
     """An `httpx` request handler that answers like Ollama's `/api/embed` and `/api/chat`.
 
     Vectors are `hash_vector`s of the exact input strings, so tests can
-    check both what was sent and what came back; every chat gets `reply`.
+    check both what was sent and what came back. A chat gets `reply`; a
+    chat that asks for a JSON schema (`format`) gets what `structured_reply`
+    returns for its last message.
     It has the default embedding and chat models unless told otherwise. Use
     `.transport` as the `transport=` of an `ollama.Client` or `httpx.Client`;
     `.transport.closed` tells whether that client was closed afterwards.
@@ -184,18 +211,26 @@ class FakeOllamaServer:
         models: Collection[str] = (EmbeddingSettings().model, ChatSettings().model),
         dimensions: int = 64,
         reply: str = "Only a good will is good without qualification [1].",
+        structured_reply: Callable[[str], str] = always_relevant,
         status: int | None = None,
     ) -> None:
         self.models = set(models)
         self.dimensions = dimensions
         self.reply = reply
+        self.structured_reply = structured_reply
         self.status = status
         self.requests: list[dict[str, Any]] = []
         self.transport = RecordingTransport(self)
 
     @property
     def chat_requests(self) -> list[dict[str, Any]]:
-        return [body for body in self.requests if "messages" in body]
+        """The chats that asked for free text (answers), not for a schema."""
+        return [body for body in self.requests if "messages" in body and "format" not in body]
+
+    @property
+    def structured_requests(self) -> list[dict[str, Any]]:
+        """The chats that asked for a JSON schema (verdicts)."""
+        return [body for body in self.requests if "format" in body]
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
         body: dict[str, Any] = json.loads(request.content)
@@ -216,7 +251,11 @@ class FakeOllamaServer:
         return httpx.Response(200, json={"model": body["model"], "embeddings": vectors})
 
     def _chat(self, body: dict[str, Any]) -> httpx.Response:
-        message = {"role": "assistant", "content": self.reply}
+        if "format" in body:
+            content = self.structured_reply(body["messages"][-1]["content"])
+        else:
+            content = self.reply
+        message = {"role": "assistant", "content": content}
         return httpx.Response(200, json={"model": body["model"], "message": message, "done": True})
 
 

@@ -12,6 +12,12 @@ behind each claim by its number. The choices behind that layout:
   advice for long prompts.
 - The passages in the order given (the retriever's: best first). Numbering
   is the caller's choice; the generator never reorders.
+- Two kinds of reply from the same message: an answer, in a few paragraphs,
+  and a survey of passages that come one per author. A survey's form is the
+  code's: the model returns exactly one paragraph per passage, and each
+  becomes a section headed by its author and number. Asked for in the
+  prompt, the numbers were a tendency: a two-author survey came back with
+  none. The rules that keep a reply faithful to the passages are shared.
 
 Whether the model really keeps to the passages is not checked here: that is
 the job of the corrective graph's graders.
@@ -20,20 +26,42 @@ the job of the corrective graph's graders.
 from collections.abc import Sequence
 from typing import Final
 
+from pydantic import BaseModel, Field, create_model
+
 from aporia_rag.domain.models import Answer, ChatMessage, RetrievedChunk
 from aporia_rag.domain.ports import ChatModel
 
-SYSTEM_PROMPT: Final = """\
+_ATTRIBUTION: Final = """\
+- Philosophers often state a view in order to reject it. Attribute a view to an author \
+only if the author holds it, and say so when they report or argue against someone else's."""
+_QUOTES: Final = "Quote only words that appear in the passages."
+
+ANSWER_PROMPT: Final = f"""\
 You answer questions about philosophy from numbered passages of primary texts.
 
 - Use only the passages that bear on the question, and leave the others out. If none \
 of them answers it, say so instead of answering from memory.
-- Philosophers often state a view in order to reject it. Attribute a view to an author \
-only if the author holds it, and say so when they report or argue against someone else's.
-- Cite the passage behind each claim by its number in square brackets, like [2]. Quote \
-only words that appear in the passages.
+{_ATTRIBUTION}
+- Cite the passage behind each claim by its number in square brackets, like [2]. {_QUOTES}
 - Keep different authors' views apart.
 - Write clear, modern English in a few short paragraphs."""
+
+SURVEY_PROMPT: Final = f"""\
+You compare what philosophers say on a question, from numbered passages of primary texts, \
+one passage per author.
+
+- Write one short paragraph per passage, in the order of the passages, on what its author \
+says about the question. Say only what the passage says, not what you know of the author \
+from elsewhere.
+{_ATTRIBUTION}
+- {_QUOTES}
+- Write clear, modern English."""
+
+
+class SurveyReply(BaseModel):
+    """A survey as the model writes it: one paragraph per passage, in their order."""
+
+    paragraphs: list[str]
 
 
 class Generator:
@@ -44,16 +72,44 @@ class Generator:
 
     def answer(self, question: str, passages: Sequence[RetrievedChunk]) -> Answer:
         """The model's answer, citing `passages` by their numbers in the order given."""
-        messages = [
-            ChatMessage(role="system", content=SYSTEM_PROMPT),
-            ChatMessage(role="user", content=_prompt(question, passages)),
-        ]
-        return Answer(text=self._model.chat(messages), sources=tuple(passages))
+        reply = self._model.chat(_messages(ANSWER_PROMPT, question, passages))
+        return Answer(text=reply, sources=tuple(passages))
+
+    def survey(self, question: str, passages: Sequence[RetrievedChunk]) -> Answer:
+        """One section per passage, in the order given: its author and number, then a paragraph."""
+        reply = self._model.chat_structured(
+            _messages(SURVEY_PROMPT, question, passages), _survey_reply(len(passages))
+        )
+        sections = (
+            f"{passage.chunk.metadata.author} [{number}]\n{paragraph.strip()}"
+            for number, (passage, paragraph) in enumerate(
+                zip(passages, reply.paragraphs, strict=True), start=1
+            )
+        )
+        return Answer(text="\n\n".join(sections), sources=tuple(passages))
 
 
-def _prompt(question: str, passages: Sequence[RetrievedChunk]) -> str:
+def _messages(
+    instructions: str, question: str, passages: Sequence[RetrievedChunk]
+) -> list[ChatMessage]:
     numbered = (
         f"[{number}] {passage.chunk.metadata.citation}\n{passage.chunk.text}"
         for number, passage in enumerate(passages, start=1)
     )
-    return "\n\n".join([*numbered, f"Question: {question}"])
+    return [
+        ChatMessage(role="system", content=instructions),
+        ChatMessage(role="user", content="\n\n".join([*numbered, f"Question: {question}"])),
+    ]
+
+
+def _survey_reply(count: int) -> type[SurveyReply]:
+    """`SurveyReply` with exactly `count` paragraphs, so none is skipped or two merged.
+
+    The count is in the JSON schema (minItems, maxItems) for the provider to
+    constrain generation, and validation checks it either way.
+    """
+    return create_model(
+        "SurveyReply",
+        __base__=SurveyReply,
+        paragraphs=(list[str], Field(min_length=count, max_length=count)),
+    )
