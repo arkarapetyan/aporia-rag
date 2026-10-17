@@ -16,6 +16,7 @@ from typing import Any, Final
 
 import httpx
 
+from aporia_rag.config import ChatSettings, EmbeddingSettings
 from aporia_rag.domain.models import ChatMessage, EmbeddingSpace, Passage, RetrievedChunk
 from aporia_rag.domain.ports import (
     IndexRecord,
@@ -172,15 +173,15 @@ class FakeOllamaServer:
 
     Vectors are `hash_vector`s of the exact input strings, so tests can
     check both what was sent and what came back; every chat gets `reply`.
-    Use `.transport` as the `transport=` of an `ollama.Client` or
-    `httpx.Client`; `.transport.closed` tells whether that client was closed
-    afterwards.
+    It has the default embedding and chat models unless told otherwise. Use
+    `.transport` as the `transport=` of an `ollama.Client` or `httpx.Client`;
+    `.transport.closed` tells whether that client was closed afterwards.
     """
 
     def __init__(
         self,
         *,
-        models: Collection[str] = ("qwen3-embedding:0.6b", "qwen3:14b"),
+        models: Collection[str] = (EmbeddingSettings().model, ChatSettings().model),
         dimensions: int = 64,
         reply: str = "Only a good will is good without qualification [1].",
         status: int | None = None,

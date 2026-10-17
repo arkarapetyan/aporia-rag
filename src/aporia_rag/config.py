@@ -54,7 +54,10 @@ class EmbeddingSettings(_Section):
 
 class ChatSettings(_Section):
     provider: str = "ollama"
-    model: str = "qwen3:14b"
+    model: str = Field(
+        default="qwen3.5:35b-a3b-q4_K_M",
+        description="A mixture of experts: ~3B of 35B parameters per token. Needs ~22 GB of RAM.",
+    )
 
 
 class ChunkingSettings(_Section):

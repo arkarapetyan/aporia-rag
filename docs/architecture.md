@@ -39,7 +39,7 @@ A violation fails the build with the offending import chain, e.g.
 
 This is the main thing that makes the project testable. Graph nodes are unit-tested against
 small in-memory fakes that implement the same Protocols, instead of patching library internals
-with mocks. The tests stay fast and deterministic, and swapping `qwen3:14b` for another model, or
+with mocks. The tests stay fast and deterministic, and swapping the chat model for another, or
 Chroma for another store, means writing one adapter, not touching the graph.
 
 Packages are created when the first component that needs them is built, not ahead of time.
@@ -71,9 +71,15 @@ Overlap shrinks when needed to guarantee progress. Sizes are in characters, a pr
 tokens, which is good enough for embedding models with large context windows; this can be
 revisited if a small-context embedder is chosen.
 
-**Local model: `qwen3:14b` via Ollama.** Fits a laptop and handles the structured grading prompts.
-A larger local model is the fallback if grading quality turns out to be insufficient, which the
-evaluation phase will measure rather than guess.
+**Local chat model: `qwen3.5:35b-a3b` via Ollama.** A mixture of experts: 35B parameters, of which a
+router uses about 3B per token. Generation is limited by how many weights each token reads, so on
+an 8 GB laptop GPU, with 72% of the model in RAM, it wrote about 45 tokens/s. That is faster than
+`qwen3.5:9b`, which fits entirely on the GPU but reads all its 9B weights per token, and four times
+faster than the dense `qwen3:14b`, partly offloaded. On four test questions it was also the only one
+of the three that kept apart the views an author holds from those he reports in order to reject
+them (Aristotle's "current views" on pleasure, the utility theory Nietzsche calls "wrong"). It
+needs about 22 GB of RAM; `qwen3.5:9b` is the setting for 16 GB machines. Four questions decide a
+default, not the model: the answer evaluation will compare models on all 40 gold questions.
 
 **Corpus from a Project Gutenberg mirror, never the website.** Gutenberg
 [forbids automated access to gutenberg.org](https://www.gutenberg.org/policy/robot_access.html) and
@@ -202,6 +208,15 @@ cosine, and the store reports similarity (1 - distance), so every store returns 
 context unless told not to; the adapter sends `truncate: false`, so an over-long chunk is an error
 instead of a vector of half its text.
 
+**Queries are embedded on the CPU.** On an 8 GB GPU, the embedder (2.4 GB of VRAM with its working
+memory) and the chat model's GPU share did not both fit, so Ollama evicted one to load the other on
+every question: retrieval took 7 s and each answer paid another 8-11 s to reload the chat model.
+The adapter now asks Ollama to embed queries on the CPU (`num_gpu: 0`): one short query takes a
+fraction of a second there, and the GPU stays with the chat model. Passages are not restricted:
+indexing embeds thousands of them, with nothing else loaded. The first `ask` after an `index`
+reloads the embedder once, on the CPU. CPU and GPU arithmetic differ in the last digits, which can
+at most reorder near-ties.
+
 ## Generation
 
 **The baseline is plain RAG.** `aporia-rag ask` retrieves the `k` passages most similar to the
@@ -222,7 +237,7 @@ where a written-out citation gets paraphrased, and `Answer.sources[n - 1]` is th
 numbered passages. Nothing checks yet that the model keeps to the passages; that is what the
 groundedness grader will do.
 
-**Thinking off.** `qwen3` is a thinking model: by default it reasons at length before answering,
+**Thinking off.** Qwen3 and Qwen3.5 are thinking models: by default they reason at length before answering,
 which takes several times as long. The Ollama adapter sends `think: false`, so the baseline answers
 directly (models that cannot think are unaffected). The graders may want reasoning back; it becomes
 a setting when something needs it.

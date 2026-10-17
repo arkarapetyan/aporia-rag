@@ -21,7 +21,7 @@ evidence that the behaviour exists rather than a coincidence.
 | Unit | none | yes | One component, no I/O. LLM, embedder, vector store and web search are replaced by in-memory fakes that implement the same `Protocol`. |
 | Property-based | none | yes | Hypothesis generates thousands of inputs to check invariants that must hold for *any* input (e.g. "no text is lost"). |
 | Integration | `integration` | no (`make test-integration`) | Real local infrastructure: on-disk Chroma, real embeddings, network. |
-| LLM | `llm` | no (`make test-llm`) | Real `qwen3:14b` via Ollama. Slow and non-deterministic, so they assert on *structure* (valid JSON, a grade from the allowed set), not exact wording. |
+| LLM | `llm` | no (`make test-llm`) | The real configured models via Ollama (chat: `qwen3.5:35b-a3b` by default). Slow and non-deterministic, so they assert on *structure* (valid JSON, a grade from the allowed set), not exact wording. |
 
 ---
 
@@ -345,7 +345,7 @@ later graph tests is proven to behave like the real store.
 
 | # | Test |
 |---|---|
-| 9.1 | Defaults: Ollama at `http://localhost:11434`, embedding `ollama` / `qwen3-embedding:0.6b`, chat `ollama` / `qwen3:14b`, Chroma index in `data/index`, corpus in `data/raw`, chunks 1000/150 |
+| 9.1 | Defaults: Ollama at `http://localhost:11434`, embedding `ollama` / `qwen3-embedding:0.6b`, chat `ollama` / `qwen3.5:35b-a3b-q4_K_M`, Chroma index in `data/index`, corpus in `data/raw`, chunks 1000/150 |
 | 9.2 | Nested environment variables override defaults (`APORIA_EMBEDDING__MODEL=...`) |
 | 9.3 | Values are read from a `.env` file, and real environment variables win over it |
 | 9.4 | Invalid values are rejected: batch size 0, chunk overlap not smaller than chunk size |
@@ -386,6 +386,7 @@ later graph tests is proven to behave like the real store.
 | 10.18 | Any other failure (server error, timeout) raises `ProviderError` |
 | 10.19 | Its embedding space is `ollama` / model / dimensions / prompt-format name |
 | 10.20 | `close()` releases its HTTP connections |
+| 10.21 | Queries are embedded on the CPU (`options: {num_gpu: 0}`), so a chat model keeps the GPU; passages (indexing) are not restricted |
 
 ## Component 11: Vector stores (`aporia_rag.adapters.chroma` and the in-memory fake)
 

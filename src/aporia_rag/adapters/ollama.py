@@ -10,6 +10,7 @@ transport. Both adapters translate the client's failures the same way, in
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from http import HTTPStatus
+from typing import Final
 
 import httpx
 import ollama
@@ -24,9 +25,20 @@ from aporia_rag.domain.errors import (
 from aporia_rag.domain.models import ChatMessage, EmbeddingSpace, Passage
 from aporia_rag.domain.ports import Vector
 
+# Ollama runs a model with this option on the CPU only (no layers on the GPU).
+_ON_CPU: Final = {"num_gpu": 0}
+
 
 class OllamaEmbedder(BatchingEmbedder):
-    """An `Embedder` backed by an Ollama embedding model such as `qwen3-embedding:0.6b`."""
+    """An `Embedder` backed by an Ollama embedding model such as `qwen3-embedding:0.6b`.
+
+    Queries are embedded on the CPU. On a small GPU the embedder (2.4 GB of
+    VRAM with its working memory) and a chat model cannot both stay loaded,
+    and Ollama evicts one to load the other: seconds of reloading on every
+    question. One short query takes a fraction of a second on the CPU, and
+    the GPU stays with the chat model. Passages are not restricted: indexing
+    embeds thousands of them, with nothing else loaded.
+    """
 
     def __init__(
         self,
@@ -67,13 +79,14 @@ class OllamaEmbedder(BatchingEmbedder):
                 # still be retrieved by its whole text: better to fail loudly.
                 truncate=False,
                 dimensions=self.space.dimensions,
+                options=_ON_CPU if purpose is EmbeddingPurpose.QUERY else None,
                 keep_alive=self._keep_alive,
             )
         return [list(vector) for vector in response.embeddings]
 
 
 class OllamaChatModel:
-    """A `ChatModel` backed by an Ollama model such as `qwen3:14b`."""
+    """A `ChatModel` backed by an Ollama model such as `qwen3.5:35b-a3b`."""
 
     def __init__(self, client: ollama.Client, model: str, *, keep_alive: str | None = None) -> None:
         self._client = client
@@ -91,9 +104,9 @@ class OllamaChatModel:
                 messages=[
                     {"role": message.role, "content": message.content} for message in messages
                 ],
-                # Answer directly. A thinking model (qwen3) would otherwise
-                # reason first, which takes several times as long; models
-                # that cannot think are not affected.
+                # Answer directly. A thinking model (Qwen3, Qwen3.5) would
+                # otherwise reason first, which takes several times as long;
+                # models that cannot think are not affected.
                 think=False,
                 keep_alive=self._keep_alive,
             )

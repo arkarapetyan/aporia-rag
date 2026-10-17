@@ -11,6 +11,7 @@ import pytest
 
 from aporia_rag.adapters.ollama import OllamaChatModel, OllamaEmbedder
 from aporia_rag.adapters.prompt_formats import QwenInstructFormat
+from aporia_rag.config import ChatSettings
 from aporia_rag.domain.errors import (
     ModelNotAvailableError,
     ProviderError,
@@ -129,6 +130,18 @@ def test_embedding_space_identifies_provider_model_size_and_format() -> None:  #
     assert _embedder(transport, dimensions=256).space.dimensions == 256
 
 
+def test_queries_are_embedded_on_the_cpu_and_passages_anywhere() -> None:  # 10.21
+    server = FakeOllamaServer(models=[MODEL])
+    embedder = _embedder(server.transport)
+
+    embedder.embed_documents([Passage(text="War.")])
+    embedder.embed_query("What is war?")
+
+    passages_request, query_request = server.requests
+    assert "options" not in passages_request  # indexing has the GPU to itself
+    assert query_request["options"] == {"num_gpu": 0}  # a loaded chat model keeps the GPU
+
+
 def test_close_releases_the_connections() -> None:  # 10.20
     server = FakeOllamaServer()
     embedder = _embedder(server.transport)
@@ -143,7 +156,7 @@ def test_close_releases_the_connections() -> None:  # 10.20
 # Chat model (Component 18)
 # --------------------------------------------------------------------------
 
-CHAT_MODEL = "qwen3:14b"
+CHAT_MODEL = ChatSettings().model  # the one FakeOllamaServer serves by default
 CONVERSATION = [
     ChatMessage(role="system", content="Answer from the passages."),
     ChatMessage(role="user", content="What is the good will?"),

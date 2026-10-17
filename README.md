@@ -64,7 +64,7 @@ All free, all local by default.
 
 | Concern | Choice |
 |---|---|
-| LLM | [Ollama](https://ollama.com) running `qwen3:14b` |
+| LLM | [Ollama](https://ollama.com) running `qwen3.5:35b-a3b` (mixture of experts: ~3B of its 35B parameters per token) |
 | Embeddings | [`qwen3-embedding:0.6b`](https://ollama.com/library/qwen3-embedding) via Ollama |
 | Orchestration | [LangGraph](https://langchain-ai.github.io/langgraph/) state machine |
 | Vector store | [Chroma](https://www.trychroma.com) (embedded, on disk) |
@@ -78,7 +78,7 @@ Prerequisites: [uv](https://docs.astral.sh/uv/) and [Ollama](https://ollama.com)
 
 ```bash
 ollama pull qwen3-embedding:0.6b  # the embedding model (639 MB)
-ollama pull qwen3:14b             # the chat model (9.3 GB)
+ollama pull qwen3.5:35b-a3b-q4_K_M   # the chat model (22 GB; needs 32 GB of RAM)
 
 make install                      # create .venv and install from the lockfile
 uv run aporia-rag fetch           # download the 12 works into data/raw (cached afterwards)
@@ -106,6 +106,7 @@ an environment variable or a `.env` file in the project directory (see
 ```bash
 APORIA_EMBEDDING__MODEL=embeddinggemma:300m   # section, two underscores, field
 APORIA_OLLAMA__HOST=http://gpu-box:11434
+APORIA_CHAT__MODEL=qwen3.5:9b-q4_K_M          # for machines with 16 GB of RAM
 ```
 
 Models and stores are chosen by name (`APORIA_EMBEDDING__PROVIDER`, `APORIA_CHAT__PROVIDER`,

@@ -607,7 +607,7 @@ def test_ask_with_a_chat_model_not_pulled_says_how_to_pull_it(
     assert exit_code == 1
     error = capsys.readouterr().err
     assert error.startswith("error: ")
-    assert "ollama pull qwen3:14b" in error
+    assert f"ollama pull {settings.chat.model}" in error
     assert len(error.strip().splitlines()) == 1
 
 
