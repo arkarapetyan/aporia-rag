@@ -315,6 +315,19 @@ guides) was left out while a similar Mill passage was kept, and Republic VI, whe
 "pleasure is the good", is not Plato's best match at all. Likewise Hume's "friendship is the chief
 joy of human life" (Section XI) is not his best match for "What is friendship?".
 
+**Authors named in the question.** A question that names an author is about that author, so without
+`--author` or `--all-authors` the names set the scope: one named author is searched as with
+`--author`, two or more get the best passage of each and a survey, as `--all-authors` does for all
+of them, and the first line of the output says whom it searched. `retrieval.names` matches the
+surname as a whole word in any case (`kant`, `Kant's`; not `Kantian`): plain code, because the names
+are a short, fixed list. The filter is not what helps. The 15 gold questions that name one author
+already retrieve almost only that author (1 of their 150 top-10 chunks is another author's), so
+their results do not change. What changes is the rest of `ask`: no search for other authors, which
+saves 8-10 s and a list the question did not ask for, and a section for each author of a comparison
+("How do Kant and Mill differ on lying?"), which the gold set cannot measure yet. A question about
+one author's view of another ("What does Aristotle say about Plato's forms?") surveys both;
+`--author` keeps it to one.
+
 ## Evaluation
 
 **Judge retrieval on a gold set, not on single queries.** `evaluation/gold_retrieval.toml` holds

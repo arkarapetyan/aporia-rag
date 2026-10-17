@@ -471,6 +471,7 @@ later graph tests is proven to behave like the real store.
 | 15.5 | `search --author` restricts results to that author (any part of the name, any case); an unknown author is an error listing the authors |
 | 15.6 | `search` on an empty index says to run `aporia-rag index` and exits 1 |
 | 15.7 | `search --all-authors` shows the best passage of each author, best first; it cannot be combined with `--author` |
+| 15.8 | `search` keeps to the authors named in the question and says so on its first line: one named author as with `--author`, two or more as with `--all-authors` over them; `--author` and `--all-authors` take precedence over the names |
 | 15.7 | Ollama not running gives a one-line error and exit code 1, no traceback |
 | 15.8 | `index` before `fetch` says to run `aporia-rag fetch` |
 | 15.9 | A corrupt corpus file is a one-line error naming the work, like every other expected failure |
@@ -539,7 +540,7 @@ the union of all systems' top results is judged).
 
 ---
 
-## Answering questions: components 18-21
+## Answering questions: components 18-22
 
 The baseline RAG pipeline: retrieve the `k` passages most similar to the question (component 13),
 then have a chat model answer from them (the generation step: the "G" in RAG). Like the retriever it
@@ -604,6 +605,8 @@ on every request.
 | 20.9 | After the answer, `ask` grades the best passage of the other authors (those with no passage among the retrieved ones, at most 4) and lists the relevant ones as other authors who discuss the question |
 | 20.10 | With `--author`, `ask` does not look for other authors |
 | 20.11 | `ask --all-authors` grades the best passage of every author, prints the survey of the relevant ones, lists the others as not relevant, and does not look for other authors (the question is embedded once) |
+| 20.12 | `ask` with one author named in the question answers from that author's passages only and does not look for other authors |
+| 20.13 | `ask` with two or more authors named in the question surveys them: the best passage of each, one section per author |
 
 ## Component 21: Relevance grader (`aporia_rag.grading.relevance`)
 
@@ -617,6 +620,21 @@ keeps every prompt short and every verdict independent of the other passages.
 |---|---|
 | 21.1 | Each passage is graded in its own call: the grading system prompt, then one user message with the passage's citation, its exact text and the question last, asking for a `RelevanceVerdict` |
 | 21.2 | `relevant` returns the passages judged relevant, in their original order |
+
+## Component 22: Authors named in the question (`aporia_rag.retrieval.names`)
+
+A question that names an author ("How does Aristotle define moral virtue?") is about that author. In
+the 2026-10-16 dump, the 15 gold questions that name one author already retrieve almost only that
+author (1 of their 150 top-10 chunks is another author's), so the filter changes no result there.
+What it changes is the rest of `ask`: no search for other authors (8-10 s and a list the question
+did not ask for), and for two or more names, a section for each named author. Matching is plain
+code over the manifest's author names: the surname, as a whole word, in any case.
+
+| # | Test |
+|---|---|
+| 22.1 | A surname names its author in any case and in the possessive (`kant`, `Kant's`, `Hobbes'`), and so does the full name |
+| 22.2 | Only whole words count: `Kantian` and `Platonic` name nobody, nor does a question without names |
+| 22.3 | Every author named is returned, in the order the authors are given |
 
 ## Architecture rules (`tests/unit/test_architecture.py`, run in the default suite)
 

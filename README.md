@@ -87,6 +87,7 @@ uv run aporia-rag search "Is anything good without qualification?" -k 5
 uv run aporia-rag search "What is justice?" --author plato
 uv run aporia-rag ask "Is anything good without qualification?"
 uv run aporia-rag ask "What is friendship?" --all-authors
+uv run aporia-rag ask "How do Kant and Mill differ on lying?"
 uv run aporia-rag evaluate        # Hit@k and MRR of retrieval on 40 gold questions
 make check                        # lint, strict type-check, tests with coverage: what CI runs
 make help                         # list all targets
@@ -99,7 +100,9 @@ starts over. `search` shows what retrieval alone finds, with similarity scores a
 other authors in the corpus who discuss the question, and the time each step took. When no passage
 is relevant, it says so instead of answering. `ask --all-authors` grades the best passage of every
 author and answers with one section per author, headed by the author and the passage number
-(about a minute on a laptop).
+(about a minute on a laptop). A question that names authors is answered from those authors only:
+one named author as with `--author` ("What does Kant say about lying?"), two or more as a survey of
+them ("How do Kant and Mill differ on lying?").
 
 ## Configuration
 
@@ -143,7 +146,8 @@ write the component, then run the full quality gate. Test lists live in
 - [x] Embeddings + Chroma vector store, incremental indexing, `aporia-rag index` and `search`
 - [x] Retrieval evaluation on 40 gold questions and an embedding model bake-off (`aporia-rag evaluate`)
 - [x] Baseline RAG (retrieve then generate), end to end: `aporia-rag ask`
-- [x] Relevance grader, pointers to other authors, survey of all authors (`ask --all-authors`)
+- [x] Relevance grader, pointers to other authors, survey of all authors (`ask --all-authors`),
+  authors named in the question
 - [ ] Query rewriter
 - [ ] Web search fallback
 - [ ] Groundedness and answer-relevance graders

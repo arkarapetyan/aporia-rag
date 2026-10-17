@@ -18,6 +18,7 @@ import sys
 from collections.abc import Callable, Sequence
 from pathlib import Path
 from time import perf_counter
+from typing import NamedTuple
 
 import httpx
 
@@ -44,6 +45,7 @@ from aporia_rag.ingestion.gutenberg import (
     fetch_cached,
 )
 from aporia_rag.ingestion.loader import iter_documents
+from aporia_rag.retrieval.names import authors_named_in
 
 type _Command = Callable[[argparse.Namespace, Container], int]
 
@@ -184,7 +186,9 @@ def _add_question_options(command: argparse.ArgumentParser) -> None:
     )
     scope = command.add_mutually_exclusive_group()
     scope.add_argument(
-        "--author", help="only this author's works (any part of the name, e.g. 'kant')"
+        "--author",
+        help="only this author's works (any part of the name, e.g. 'kant'); without it and "
+        "--all-authors, the authors named in the question",
     )
     scope.add_argument(
         "--all-authors",
@@ -270,23 +274,55 @@ def _print_progress(progress: WorkProgress) -> None:
 
 
 def _search(args: argparse.Namespace, container: Container) -> int:
-    works = load_manifest(args.manifest).works
-    for rank, result in enumerate(_retrieve(args, container, works), start=1):
+    scope = _scope(args, load_manifest(args.manifest).works)
+    for rank, result in enumerate(_retrieve(args, container, scope), start=1):
         chunk = result.chunk
         print(f"{rank}. {result.score:.3f}  {chunk.metadata.citation}  [{chunk.id}]")
         print(f"   {_snippet(chunk.text)}")
     return 0
 
 
+class _Scope(NamedTuple):
+    """Whose passages answer the question, and how many of each."""
+
+    author: str | None = None  # the k best passages of this author only
+    survey: tuple[str, ...] = ()  # instead, the best passage of each of these authors
+    named: tuple[str, ...] = ()  # the authors named in the question, when they set the scope
+
+    @property
+    def unrestricted(self) -> bool:
+        """The k best passages of any author: the one scope that can miss other authors."""
+        return self.author is None and not self.survey
+
+
+def _scope(args: argparse.Namespace, works: Sequence[WorkSpec]) -> _Scope:
+    """`--author` and `--all-authors` decide; without them, the authors the question names."""
+    if args.author is not None:
+        return _Scope(author=_resolve_author(args.author, works))
+    authors = _authors(works)
+    if args.all_authors:
+        return _Scope(survey=tuple(authors))
+    match authors_named_in(args.question, authors):
+        case []:
+            return _Scope()
+        case [author]:
+            return _Scope(author=author, named=(author,))
+        case named:
+            return _Scope(survey=tuple(named), named=tuple(named))
+
+
 def _retrieve(
-    args: argparse.Namespace, container: Container, works: Sequence[WorkSpec]
+    args: argparse.Namespace, container: Container, scope: _Scope
 ) -> list[RetrievedChunk]:
     """The passages for the question, as `search` shows them and `ask` answers from them."""
-    filters = None if args.author is None else {"author": _resolve_author(args.author, works)}
     _require_index(container)
-    if args.all_authors:
-        authors = _authors(works)
-        return container.retriever.best_per_author(args.question, authors, limit=len(authors))
+    if scope.named:
+        print(f"Searching only the authors named in the question: {', '.join(scope.named)}.\n")
+    if scope.survey:
+        return container.retriever.best_per_author(
+            args.question, scope.survey, limit=len(scope.survey)
+        )
+    filters = None if scope.author is None else {"author": scope.author}
     return container.retriever.search(args.question, k=args.k, filters=filters)
 
 
@@ -328,13 +364,14 @@ def _require_index(container: Container) -> None:
 
 def _ask(args: argparse.Namespace, container: Container) -> int:
     works = load_manifest(args.manifest).works
+    scope = _scope(args, works)
     started = perf_counter()
-    found = _retrieve(args, container, works)
+    found = _retrieve(args, container, scope)
     retrieved = perf_counter()
     relevant = container.relevance_grader.relevant(args.question, found)
     graded = perf_counter()
     if relevant:
-        write = container.generator.survey if args.all_authors else container.generator.answer
+        write = container.generator.survey if scope.survey else container.generator.answer
         answer = write(args.question, relevant)
         print(answer.text)
         print("\nPassages:")
@@ -348,8 +385,7 @@ def _ask(args: argparse.Namespace, container: Container) -> int:
     else:
         print(f"None of the {len(found)} passages found answers this question.")
     answered = perf_counter()
-    authors_chosen = args.author is not None or args.all_authors
-    others = [] if authors_chosen else _other_authors(args.question, container, works, found)
+    others = _other_authors(args.question, container, works, found) if scope.unrestricted else []
     if others:
         print("\nOther authors who discuss this:")
         for passage in others:

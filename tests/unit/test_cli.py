@@ -342,8 +342,7 @@ def test_search_all_authors_shows_the_best_passage_of_each_author(
     )  # fmt: skip
 
     assert exit_code == 0
-    shown = re.findall(r"^\d+\. .*\[(.+)\]$", capsys.readouterr().out, re.MULTILINE)
-    assert shown == [
+    assert _shown(capsys.readouterr().out) == [
         "kant-groundwork/first-section#0",  # Kant's best; his second section is left out
         "hobbes-leviathan/chapter-xiii#0",
     ]
@@ -359,6 +358,82 @@ def test_search_cannot_take_all_authors_and_one_author(
         )  # fmt: skip
 
     assert "not allowed with argument --author" in capsys.readouterr().err
+
+
+SCOPE_LINE = "Searching only the authors named in the question: "
+
+
+def _shown(output: str) -> list[str]:
+    """The chunk ids of the results `search` printed, in rank order."""
+    return re.findall(r"^\d+\. .*\[(.+)\]$", output, re.MULTILINE)
+
+
+@pytest.mark.parametrize(
+    ("question", "first_line", "shown"),
+    [
+        (
+            "What does hobbes call good without qualification?",
+            f"{SCOPE_LINE}Thomas Hobbes.",
+            ["hobbes-leviathan/chapter-xiii#0"],
+        ),
+        (
+            "What do Kant and Hobbes call good without qualification?",
+            f"{SCOPE_LINE}Immanuel Kant, Thomas Hobbes.",
+            ["hobbes-leviathan/chapter-xiii#0", "kant-groundwork/first-section#0"],  # one each
+        ),
+    ],
+    ids=["one-author", "two-authors"],
+)
+def test_search_keeps_to_the_authors_named_in_the_question(
+    index_manifest: Path,
+    settings: Settings,
+    capsys: pytest.CaptureFixture[str],
+    *,
+    question: str,
+    first_line: str,
+    shown: list[str],
+) -> None:  # 15.8
+    server = FakeOllamaServer()
+    _index(index_manifest, settings, server)
+    capsys.readouterr()
+
+    exit_code = _run(
+        "search", question, manifest=index_manifest, settings=settings, transport=server.transport
+    )
+
+    assert exit_code == 0
+    output = capsys.readouterr().out
+    assert output.startswith(f"{first_line}\n\n1. ")
+    assert _shown(output) == shown
+
+
+@pytest.mark.parametrize(
+    ("option", "shown"),
+    [
+        ("--author=kant", ["kant-groundwork/first-section#0"]),
+        ("--all-authors", ["kant-groundwork/first-section#0", "hobbes-leviathan/chapter-xiii#0"]),
+    ],
+)
+def test_search_options_take_precedence_over_the_names_in_the_question(
+    index_manifest: Path,
+    settings: Settings,
+    capsys: pytest.CaptureFixture[str],
+    option: str,
+    shown: list[str],
+) -> None:  # 15.8
+    server = FakeOllamaServer()
+    _index(index_manifest, settings, server)
+    capsys.readouterr()
+
+    exit_code = _run(
+        "search", "What does Hobbes call good without qualification?", option, "-k", "1",
+        manifest=index_manifest, settings=settings, transport=server.transport,
+    )  # fmt: skip
+
+    assert exit_code == 0
+    output = capsys.readouterr().out
+    assert SCOPE_LINE not in output
+    assert sorted(_shown(output)) == sorted(shown)
 
 
 def test_ollama_not_running_is_a_one_line_error(
@@ -804,6 +879,57 @@ def test_ask_all_authors_surveys_the_relevant_best_passage_of_each_author(
         "- Thomas Hobbes, Leviathan, Chapter XIII (hobbes-leviathan/chapter-xiii#0)\n"
     ) in output
     assert "Other authors" not in output
+
+
+def test_ask_answers_from_the_one_author_named_in_the_question(
+    index_manifest: Path, settings: Settings, capsys: pytest.CaptureFixture[str]
+) -> None:  # 20.12
+    server = FakeOllamaServer(reply=REPLY)
+    _index(index_manifest, settings, server)
+    capsys.readouterr()
+
+    exit_code = _run(
+        "ask", "What does Hobbes call good without qualification?",
+        manifest=index_manifest, settings=settings, transport=server.transport,
+    )  # fmt: skip
+
+    assert exit_code == 0
+    assert len(server.structured_requests) == 1  # Hobbes's one passage: no search for others
+    [chat] = server.chat_requests
+    assert _passage_headers(chat["messages"][-1]["content"]) == [
+        "[1] Thomas Hobbes, Leviathan, Chapter XIII"
+    ]
+    output = capsys.readouterr().out
+    assert output.startswith(f"{SCOPE_LINE}Thomas Hobbes.\n\n{REPLY}\n")
+    assert "Other authors" not in output
+
+
+def _relevant_then_survey_of_two(prompt: str) -> str:
+    if prompt.startswith("[1] "):  # the survey: the numbered passages, then the question
+        return '{"paragraphs": ["The first.", "The second."]}'
+    return RELEVANT
+
+
+def test_ask_surveys_the_authors_named_in_the_question(
+    index_manifest: Path, settings: Settings, capsys: pytest.CaptureFixture[str]
+) -> None:  # 20.13
+    server = FakeOllamaServer(structured_reply=_relevant_then_survey_of_two)
+    _index(index_manifest, settings, server)
+    capsys.readouterr()
+
+    exit_code = _run(
+        "ask", "What do Kant and Hobbes call good without qualification?",
+        manifest=index_manifest, settings=settings, transport=server.transport,
+    )  # fmt: skip
+
+    assert exit_code == 0
+    *verdicts, survey = server.structured_requests
+    assert len(verdicts) == 2  # the best passage of each named author
+    assert survey["messages"][0]["content"] == SURVEY_PROMPT
+    assert capsys.readouterr().out.startswith(
+        f"{SCOPE_LINE}Immanuel Kant, Thomas Hobbes.\n\n"
+        "Thomas Hobbes [1]\nThe first.\n\nImmanuel Kant [2]\nThe second.\n"  # best first
+    )
 
 
 def test_ask_releases_both_models_connections(
