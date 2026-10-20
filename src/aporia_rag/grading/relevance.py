@@ -9,6 +9,17 @@ about each passage and keeps the ones it judges relevant.
 One call per passage, not one call for all of them: each prompt stays
 short (well inside the model's context), and each verdict depends on its
 passage alone, not on what else happened to be retrieved.
+
+Measured against the gold set (`evaluate --grade`, 2026-10-20): the one
+systematic error was dropping a passage that answers one part of a question
+with several parts, or gives one side of a comparison. Kant on truthfulness
+was kept for "What does Kant say about lying?" and dropped for "How do Kant
+and Mill differ on lying?". A prompt line naming that case was measured
+the same day and reverted: it kept 25 more chunks (8 of them evidence, 17
+not), recovered 2 of the 7 dropped passages, and still dropped Kant's for
+the comparison. A prompt rule shifts the threshold; it does not fix this
+case. Comparisons are therefore the caller's job (live test L.7 records the
+limitation).
 """
 
 from collections.abc import Sequence

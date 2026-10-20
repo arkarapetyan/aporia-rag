@@ -1,4 +1,4 @@
-"""Real passages for the real-model tests: three authors on three different subjects."""
+"""Real passages for the real-model tests: Kant, Hobbes and Mill, each on a subject of their own."""
 
 from support.builders import make_chunk
 
@@ -26,5 +26,34 @@ MILL = make_chunk(
     "Principle, holds that actions are right in proportion as they tend to promote happiness.",
     author="John Stuart Mill",
     title="Utilitarianism",
+    section="Chapter II",
+)
+
+# The two passages `ask` graded for "How do Kant and Mill differ on lying?" on 2026-10-20: each
+# author's best match for the question. Kant's is on lying; Mill's is not.
+KANT_ON_LYING = make_chunk(
+    "kant-metaphysic-of-morals/first-section#28",
+    "Now it is a wholly different thing to be truthful from duty and to be so from apprehension "
+    "of injurious consequences. In the first case, the very notion of the action already implies "
+    "a law for me; in the second case, I must first look about elsewhere to see what results may "
+    "be combined with it which would affect myself. For to deviate from the principle of duty is "
+    "beyond all doubt wicked; but to be unfaithful to my maxim of prudence may often be very "
+    "advantageous to me, although to abide by it is certainly safer. The shortest way, however, "
+    "and an unerring one, to discover the answer to this question whether a lying promise is "
+    'consistent with duty, is to ask myself, "Should I be content that my maxim (to extricate '
+    "myself from difficulty by a false promise) should hold good as a universal law, for myself as "
+    'well as for others?"',
+    author="Immanuel Kant",
+    title="Fundamental Principles of the Metaphysic of Morals",
+    section="First Section",
+)
+MILL_ON_DISSENT = make_chunk(
+    "mill-on-liberty/chapter-ii#95",
+    "When there are persons to be found, who form an exception to the apparent unanimity of the "
+    "world on any subject, even if the world is in the right, it is always probable that "
+    "dissentients have something worth hearing to say for themselves, and that truth would lose "
+    "something by their silence.",
+    author="John Stuart Mill",
+    title="On Liberty",
     section="Chapter II",
 )

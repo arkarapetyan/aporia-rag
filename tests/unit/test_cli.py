@@ -872,9 +872,13 @@ def test_ask_with_no_relevant_passage_says_so_without_an_answer(
 
     assert exit_code == 0
     assert server.chat_requests == []  # graded, but never asked for an answer
-    assert capsys.readouterr().out.startswith(
-        "None of the 2 passages found answers this question.\n"
+    output = capsys.readouterr().out
+    assert output.startswith(
+        "None of the 2 passages found answers this question.\n\nLeft out as not relevant:\n"
     )
+    left_out = output.split("Left out as not relevant:\n", 1)[1].split("\n\n", 1)[0]
+    assert len(left_out.splitlines()) == 2  # both graded passages, so the decision can be checked
+    assert all(re.match(r"^- .+ \(.+#\d+\)$", line) for line in left_out.splitlines())
 
 
 HOBBES_POINTER = (

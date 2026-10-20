@@ -391,13 +391,13 @@ def _ask(args: argparse.Namespace, container: Container) -> int:
         print("\nPassages:")
         for number, source in enumerate(answer.sources, start=1):
             print(f"[{number}] {_label(source)}")
-        left_out = [passage for passage in found if passage not in relevant]
-        if left_out:
-            print("\nLeft out as not relevant:")
-            for passage in left_out:
-                print(f"- {_label(passage)}")
     else:
         print(f"None of the {len(found)} passages found answers this question.")
+    left_out = [passage for passage in found if passage not in relevant]
+    if left_out:
+        print("\nLeft out as not relevant:")
+        for passage in left_out:
+            print(f"- {_label(passage)}")
     answered = perf_counter()
     others = _other_authors(args.question, container, works, found) if scope.unrestricted else []
     if others:

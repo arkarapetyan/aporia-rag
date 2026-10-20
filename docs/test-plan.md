@@ -603,7 +603,7 @@ on every request.
 | 20.5 | `ask` releases its connections, the chat model's included |
 | 20.6 | `ask` ends with how long the answer took, split into retrieval, grading, generation and the search for other authors (a scripted clock makes the numbers exact) |
 | 20.7 | `ask` grades every retrieved passage: the model answers from the relevant ones only, numbered from 1, and the passages left out are listed as not relevant |
-| 20.8 | When no passage is relevant, `ask` says so and never asks the model for an answer |
+| 20.8 | When no passage is relevant, `ask` says so, lists the passages it left out as not relevant (as when some are relevant), and never asks the model for an answer |
 | 20.9 | After the answer, `ask` grades the best passage of the other authors (those with no passage among the retrieved ones, at most 4) and lists the relevant ones as other authors who discuss the question |
 | 20.10 | With `--author`, `ask` does not look for other authors |
 | 20.11 | `ask --all-authors` grades the best passage of every author, prints the survey of the relevant ones, lists the others as not relevant, and does not look for other authors (the question is embedded once) |
@@ -623,6 +623,19 @@ keeps every prompt short and every verdict independent of the other passages.
 | 21.1 | Each passage is graded in its own call: the grading system prompt, then one user message with the passage's citation, its exact text and the question last, asking for a `RelevanceVerdict` |
 | 21.2 | `relevant` returns the passages judged relevant, in their original order |
 | 21.3 | `is_relevant` grades one passage in one call and returns the model's verdict (component 23 measures the grader through it) |
+
+**Questions with several parts (2026-10-20).** Component 23 found one systematic error: the grader
+dropped passages that answer one part of a question with several parts, or one side of a
+comparison (three music passages for "Why does music move us more deeply than painting or
+poetry?", four for "Why do we expect the future to resemble the past?"). "How do Kant and Mill
+differ on lying?" failed the same way: Kant's passage on truthfulness from duty was kept for "What
+does Kant say about lying?" and dropped for the comparison. A prompt line saying that a passage
+answering one part, or giving one author's view, helps was measured and reverted: on the same
+chunks it kept 25 more (8 evidence, 17 not), so top-5 precision fell from 0.93 to 0.89, it
+recovered only 2 of the 7 dropped passages, one more question no longer started the loop, and
+L.7 still failed. The grader stays as it was. L.7 is kept as an expected failure (strict, so it
+reports when the grader passes it) that records the limitation; the fix for comparisons belongs
+to the caller, which can ask about one author at a time.
 
 ## Component 22: Authors named in the question (`aporia_rag.retrieval.names`)
 
@@ -723,3 +736,4 @@ instead of waiting for a code review to notice it.
 | L.4 | The configured chat model answers a question from three passages: the answer cites at least one of them by a number in range, and contains no thinking (`<think>`) |
 | L.5 | The relevance grader, with the configured chat model, keeps the Kant passage and leaves out the Hobbes passage for a question about what is good without qualification |
 | L.6 | The configured chat model surveys a Kant and a Mill passage on what makes something morally good: Kant's section speaks of the good will, Mill's of happiness |
+| L.7 | Expected to fail (known limitation, 2026-10-20): for "How do Kant and Mill differ on lying?", the relevance grader should keep Kant's passage on truthfulness from duty (one side of the comparison) and leave out Mill's passage on dissent; it leaves out both |

@@ -283,7 +283,8 @@ prompt stays short, well inside the model's context, and each verdict depends on
 Temperature 0 makes the verdict repeatable: the same passage, the same decision.
 
 **Visible decisions.** `ask` lists the passages it left out as not relevant under the ones it used,
-and when no passage is relevant it says so and does not ask for an answer at all. That replaces the
+and when no passage is relevant it says so, lists them all the same (so the decision can be
+checked), and does not ask for an answer at all. That replaces the
 worst failure seen so far: an answer written from the model's memory, with citations of passages
 that do not support it.
 
@@ -388,6 +389,25 @@ Self-Control" for akrasia, Descartes's "automata", Plato's "royal lie"); four as
 does not contain, with `evidence = []`. Retrieval metrics leave the latter out (they have no rank to
 find), and the grader evaluation uses them: every retrieved passage is rightly "not relevant", so the
 loop must start, and later the web fallback is their only route.
+
+**What the first grader run showed (2026-10-20).** Of 68 disagreements, read one by one: 21 grader
+errors (all on the 40 retrieval questions), 28 leniency by design, 16 answering passages the gold
+sets lacked (now added, most marked borderline; among them Cicero's "promises are not binding which
+are extorted by intimidation", which no keyword search had found), and 3 passing mentions. On the
+corrected labels the grader's precision and recall are 0.93 and 0.92 at the top 5, and it rejected
+every passage retrieved for the four questions outside the corpus. The one systematic error was a
+passage that answers one part of a question with several parts, or one side of a comparison. A
+prompt line naming that case was measured and reverted: it made the grader more lenient overall
+(25 more chunks kept, 17 of them not evidence; precision 0.93 -> 0.89) and still dropped Kant's
+passage for "How do Kant and Mill differ on lying?". A prompt rule moves a threshold; the fix for
+comparisons belongs to the caller, which can ask about one author at a time. "The grader keeps no
+passage in the top 5" starts the loop for 6 of the 7 questions that need it, with no needless
+start; "fewer than 2 kept" would add 11 needless starts to catch the seventh. Retrieval is
+stronger than the loop set assumed: modern wording for Hobbes, Aristotle, Descartes and Plato
+still found the evidence in the top 5. Hand-written rewrites in each author's vocabulary
+(`search`, a spike) brought evidence into the top 5 for all three retrieval questions that fail
+(`kant-universal-law`, `cicero-expedient-and-right`, `hobbes-sovereign`), which bounds what a
+query rewriter can gain.
 
 ## Quality gate
 
