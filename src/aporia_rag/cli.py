@@ -19,7 +19,6 @@ import sys
 from collections.abc import Callable, Sequence
 from pathlib import Path
 from time import perf_counter
-from typing import NamedTuple
 
 import httpx
 
@@ -43,6 +42,8 @@ from aporia_rag.evaluation.retrieval import (
     mean_reciprocal_rank,
     write_retrievals,
 )
+from aporia_rag.graph.corrective import Scope
+from aporia_rag.graph.corrective import search as search_in_scope
 from aporia_rag.indexing.indexer import WorkProgress
 from aporia_rag.ingestion.corpus import WorkSpec, load_manifest
 from aporia_rag.ingestion.gutenberg import (
@@ -289,55 +290,35 @@ def _print_progress(progress: WorkProgress) -> None:
 
 def _search(args: argparse.Namespace, container: Container) -> int:
     scope = _scope(args, load_manifest(args.manifest).works)
-    for rank, result in enumerate(_retrieve(args, container, scope), start=1):
+    _require_index(container)
+    _print_scope(scope)
+    found = search_in_scope(container.retriever, args.question, scope, k=args.k)
+    for rank, result in enumerate(found, start=1):
         chunk = result.chunk
         print(f"{rank}. {result.score:.3f}  {chunk.metadata.citation}  [{chunk.id}]")
         print(f"   {_snippet(chunk.text)}")
     return 0
 
 
-class _Scope(NamedTuple):
-    """Whose passages answer the question, and how many of each."""
-
-    author: str | None = None  # the k best passages of this author only
-    survey: tuple[str, ...] = ()  # instead, the best passage of each of these authors
-    named: tuple[str, ...] = ()  # the authors named in the question, when they set the scope
-
-    @property
-    def unrestricted(self) -> bool:
-        """The k best passages of any author: the one scope that can miss other authors."""
-        return self.author is None and not self.survey
-
-
-def _scope(args: argparse.Namespace, works: Sequence[WorkSpec]) -> _Scope:
+def _scope(args: argparse.Namespace, works: Sequence[WorkSpec]) -> Scope:
     """`--author` and `--all-authors` decide; without them, the authors the question names."""
     if args.author is not None:
-        return _Scope(author=_resolve_author(args.author, works))
+        return Scope(author=_resolve_author(args.author, works))
     authors = _authors(works)
     if args.all_authors:
-        return _Scope(survey=tuple(authors))
+        return Scope(survey=tuple(authors))
     match authors_named_in(args.question, authors):
         case []:
-            return _Scope()
+            return Scope()
         case [author]:
-            return _Scope(author=author, named=(author,))
+            return Scope(author=author, named=(author,))
         case named:
-            return _Scope(survey=tuple(named), named=tuple(named))
+            return Scope(survey=tuple(named), named=tuple(named))
 
 
-def _retrieve(
-    args: argparse.Namespace, container: Container, scope: _Scope
-) -> list[RetrievedChunk]:
-    """The passages for the question, as `search` shows them and `ask` answers from them."""
-    _require_index(container)
+def _print_scope(scope: Scope) -> None:
     if scope.named:
         print(f"Searching only the authors named in the question: {', '.join(scope.named)}.\n")
-    if scope.survey:
-        return container.retriever.best_per_author(
-            args.question, scope.survey, limit=len(scope.survey)
-        )
-    filters = None if scope.author is None else {"author": scope.author}
-    return container.retriever.search(args.question, k=args.k, filters=filters)
 
 
 def _authors(works: Sequence[WorkSpec]) -> list[str]:
@@ -376,40 +357,54 @@ def _require_index(container: Container) -> None:
 # --------------------------------------------------------------------------
 
 
+# The stages of an answer, in the order the time report lists them.
+_STAGES = ("rewriting", "retrieval", "grading", "generation")
+
+
 def _ask(args: argparse.Namespace, container: Container) -> int:
     works = load_manifest(args.manifest).works
     scope = _scope(args, works)
+    _require_index(container)
+    _print_scope(scope)
     started = perf_counter()
-    found = _retrieve(args, container, scope)
-    retrieved = perf_counter()
-    relevant = container.relevance_grader.relevant(args.question, found)
-    graded = perf_counter()
-    if relevant:
-        write = container.generator.survey if scope.survey else container.generator.answer
-        answer = write(args.question, relevant)
-        print(answer.text)
+    outcome = container.corrective_rag.answer(
+        args.question, scope, k=args.k, authors=_authors(works)
+    )
+    if outcome.author_questions:
+        print("Asked of each author on their own:")
+        for question in outcome.author_questions:
+            print(f"- {question}")
+        print()
+    if outcome.query is not None:
+        print("Nothing relevant was found, so the question was searched again as: ", end="")
+        print(f'"{outcome.query}"\n')
+    if outcome.answer is not None:
+        print(outcome.answer.text)
         print("\nPassages:")
-        for number, source in enumerate(answer.sources, start=1):
+        for number, source in enumerate(outcome.answer.sources, start=1):
             print(f"[{number}] {_label(source)}")
     else:
-        print(f"None of the {len(found)} passages found answers this question.")
-    left_out = [passage for passage in found if passage not in relevant]
-    if left_out:
+        print(f"None of the {len(outcome.graded)} passages found answers this question.")
+    if outcome.left_out:
         print("\nLeft out as not relevant:")
-        for passage in left_out:
+        for passage in outcome.left_out:
             print(f"- {_label(passage)}")
     answered = perf_counter()
-    others = _other_authors(args.question, container, works, found) if scope.unrestricted else []
+    others = (
+        _other_authors(args.question, container, works, outcome.graded)
+        if scope.unrestricted
+        else []
+    )
     if others:
         print("\nOther authors who discuss this:")
         for passage in others:
             print(f"- {_label(passage)}")
     pointed = perf_counter()
-    print(
-        f"\nanswered in {pointed - started:.1f}s (retrieval {retrieved - started:.1f}s, "
-        f"grading {graded - retrieved:.1f}s, generation {answered - graded:.1f}s, "
-        f"other authors {pointed - answered:.1f}s)"
-    )
+    stages = [
+        f"{stage} {outcome.seconds[stage]:.1f}s" for stage in _STAGES if stage in outcome.seconds
+    ]
+    stages.append(f"other authors {pointed - answered:.1f}s")
+    print(f"\nanswered in {pointed - started:.1f}s ({', '.join(stages)})")
     return 0
 
 

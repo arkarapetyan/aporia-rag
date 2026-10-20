@@ -39,9 +39,11 @@ from aporia_rag.domain.models import EmbeddingSpace
 from aporia_rag.domain.ports import ChatModel, Chunker, Embedder, VectorStore
 from aporia_rag.generation.generator import Generator
 from aporia_rag.grading.relevance import RelevanceGrader
+from aporia_rag.graph.corrective import CorrectiveRAG
 from aporia_rag.indexing.indexer import Indexer
 from aporia_rag.ingestion.chunker import RecursiveChunker
 from aporia_rag.retrieval.retriever import Retriever
+from aporia_rag.retrieval.rewriter import QueryRewriter
 
 # A factory receives the settings, plus the HTTP transport to use (None: the
 # real network). Every HTTP-based provider SDK can take one, which is how
@@ -170,6 +172,16 @@ class Container:
     @cached_property
     def relevance_grader(self) -> RelevanceGrader:
         return RelevanceGrader(self.chat_model)
+
+    @cached_property
+    def query_rewriter(self) -> QueryRewriter:
+        return QueryRewriter(self.chat_model)
+
+    @cached_property
+    def corrective_rag(self) -> CorrectiveRAG:
+        return CorrectiveRAG(
+            self.retriever, self.relevance_grader, self.generator, self.query_rewriter
+        )
 
     def _owned[T](self, component: T) -> T:
         if isinstance(component, _Closeable):

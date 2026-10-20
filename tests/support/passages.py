@@ -57,3 +57,21 @@ MILL_ON_DISSENT = make_chunk(
     title="On Liberty",
     section="Chapter II",
 )
+# Mill's own passage on lying (Utilitarianism II), which the comparison wording missed; the
+# comparison spike of 2026-10-20 graded these three against each author's own question.
+MILL_ON_LYING = make_chunk(
+    "mill-utilitarianism/chapter-ii#54",
+    "we feel that the violation, for a present advantage, of a rule of such transcendent "
+    "expediency, is not expedient, and that he who, for the sake of a convenience to himself or "
+    "to some other individual, does what depends on him to deprive mankind of the good, and "
+    "inflict upon them the evil, involved in the greater or less reliance which they can place in "
+    "each other's word, acts the part of one of their worst enemies. Yet that even this rule, "
+    "sacred as it is, admits of possible exceptions, is acknowledged by all moralists; the chief "
+    "of which is when the withholding of some fact (as of information from a male-factor, or of "
+    "bad news from a person dangerously ill) would preserve some one (especially a person other "
+    "than oneself) from great and unmerited evil, and when the withholding can only be effected "
+    "by denial.",
+    author="John Stuart Mill",
+    title="Utilitarianism",
+    section="Chapter II",
+)

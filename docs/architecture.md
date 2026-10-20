@@ -7,13 +7,13 @@ src/aporia_rag/
 ├── domain/        Pure core: models, errors, ports (Protocols). Depends only on pydantic.
 ├── ingestion/     Raw text -> Documents -> Chunks. Depends on domain.
 ├── indexing/      Keeps the vector index in step with the corpus. Depends on domain ports.
-├── retrieval/     Question -> nearest chunks. Depends on domain ports.
+├── retrieval/     Question -> nearest chunks; rewriting a question for search. Depends on domain ports.
 ├── adapters/      Ollama, Chroma (later ddgs, Google...) implementations of the ports.
-├── graph/         (planned) LangGraph state, nodes and wiring. Depends on domain ports only.
+├── graph/         The corrective loop (LangGraph): retrieve, grade, rewrite once, generate.
 ├── evaluation/    Gold questions and metrics: retrieval (Hit@k, MRR) and the grader now, answers later.
 ├── config.py      Settings from the environment / .env.
 ├── bootstrap.py   Composition root: provider registries and the Container that builds everything.
-└── cli.py         `aporia-rag fetch | index | search`.
+└── cli.py         `aporia-rag fetch | index | search | ask | evaluate`.
 ```
 
 **Rule:** dependencies point inward. `domain` imports nothing from the other packages;
@@ -27,12 +27,14 @@ place where a provider's API meets our interfaces. What must hold is that nothin
 **Enforced, not just documented.** The rules are [import-linter](https://import-linter.readthedocs.io)
 contracts in `pyproject.toml`, checked by `tests/unit/test_architecture.py` on every test run:
 
-- *layers*: `cli` > `bootstrap` > {`adapters`, `config`, `evaluation`, `generation`, `grading`,
-  `indexing`, `ingestion`, `retrieval`} > `domain`. Nothing imports a layer above it, and the middle packages do not import each other:
-  the indexer reaches Chroma only through the `VectorStore` port. `graph` gets its place in this
-  contract when the package is created (it will sit above `retrieval`, which it calls).
+- *layers*: `cli` > `bootstrap` > `graph` > {`adapters`, `config`, `evaluation`, `generation`,
+  `grading`, `indexing`, `ingestion`, `retrieval`} > `domain`. Nothing imports a layer above it, and
+  the middle packages do not import each other: the indexer reaches Chroma only through the
+  `VectorStore` port. `graph` sits above the components it calls and below the composition root that
+  builds it.
 - *provider-libraries*: `chromadb` and `ollama` are imported by `adapters` only, directly or
   indirectly.
+- *orchestration-framework*: `langgraph` is imported by `graph` only.
 
 A violation fails the build with the offending import chain, e.g.
 `aporia_rag.indexing.indexer -> aporia_rag.adapters.chroma -> chromadb`.
@@ -325,9 +327,52 @@ are a short, fixed list. The filter is not what helps. The 15 gold questions tha
 already retrieve almost only that author (1 of their 150 top-10 chunks is another author's), so
 their results do not change. What changes is the rest of `ask`: no search for other authors, which
 saves 8-10 s and a list the question did not ask for, and a section for each author of a comparison
-("How do Kant and Mill differ on lying?"), which the gold set cannot measure yet. A question about
+("How do Kant and Mill differ on lying?"), which the gold set cannot measure yet. (A comparison is
+graded per author, see "The corrective graph": asked the comparison itself, the grader left out
+every passage, even those on lying.) A question about
 one author's view of another ("What does Aristotle say about Plato's forms?") surveys both;
 `--author` keeps it to one.
+
+## The corrective graph
+
+**Grade, then search again only when nothing answers.** `graph.CorrectiveRAG` runs the loop that
+`ask` used to run inline: retrieve, grade every passage, and answer from the ones kept. When the
+grader keeps none, it does not answer from noise: `retrieval.QueryRewriter` writes one search query
+in the corpus's vocabulary, the graph searches again with the same `k` and author filter, grades
+only the passages it has not graded yet, and answers from those or says that nothing answers. The
+query is for the search only; verdicts and the answer are about the reader's question, and `ask`
+prints the query so the detour can be checked.
+
+```
+START -> [ask_each_author] -> retrieve -> grade -> generate -> END
+                                 ^           |
+                                 +- rewrite -+   (nothing kept; once)
+```
+
+**Model calls only where they are needed.** On the normal path (something kept) the graph makes
+exactly the calls `ask` made before: one verdict per passage and one answer. The rewrite runs only
+on the loop path, at most once: one rewrite was enough when it was measured. Measured before the
+rewriter was built (2026-10-20): the trigger "nothing kept in the top 5" starts the loop for 6 of
+the 7 gold questions that need it, with no needless start; the chat model's rewrites put evidence in
+the top 5 for all 3 retrieval questions that fail, at 1.5-1.9 s each; and a prompt line asking the
+grader to keep one side of a comparison was tried and reverted, because it made the grader more
+lenient everywhere (17 of 25 changed verdicts wrong) without fixing the comparison. Questions outside
+the corpus also pay for the rewrite (about 9 s) until the web fallback is the next node.
+
+**Comparisons per author.** Asked "How do Kant and Mill differ on lying?", the grader left out every
+passage, even Kant's and Mill's own on lying; asked "What does Immanuel Kant say about lying?" and
+the same of Mill, it kept each side and still left out Mill on dissent (3 of 3; two plain-code
+framings of the comparison scored 1 of 3). So a question that names two or more authors costs one
+model call for its subject; plain code asks it of each author, and each author's best passage is
+found among that author's works with that question and graded against it. The survey answers the
+reader's question, in the order of the names. A survey of all authors is never rewritten.
+
+**Why LangGraph.** The loop is a small state machine, and LangGraph states it as nodes and
+conditional edges: the web fallback (component 26) adds one node and one edge, and the compiled
+graph draws itself as a Mermaid diagram. It is the only package that imports LangGraph (enforced),
+and its nodes call the same components the CLI used, so they are tested with the same in-memory
+fakes. LangGraph brings `langchain-core` as a dependency; nothing in the project uses LangChain's
+retrieval or model wrappers.
 
 ## Evaluation
 

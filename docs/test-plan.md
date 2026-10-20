@@ -458,7 +458,8 @@ later graph tests is proven to behave like the real store.
 | 14.7 | An index built through the container's indexer is searchable through its retriever (they share the embedder and the store) |
 | 14.8 | The container is a context manager: leaving it closes the components it built that hold connections, even when the block raises; a container that built nothing closes nothing |
 | 14.9 | Builds an Ollama chat model from the settings (host, model, `keep_alive`, context length); an unknown chat provider raises `ConfigurationError` listing the available ones |
-| 14.10 | The container's generator and relevance grader share its chat model, built once and only when first used (so `search` never needs one), and closed on leaving the container |
+| 14.10 | The container's generator, relevance grader and query rewriter share its chat model, built once and only when first used (so `search` never needs one), and closed on leaving the container |
+| 14.11 | The container's corrective graph is built once, from the container's retriever, grader, generator and rewriter |
 
 ## Component 15: `index` and `search` commands (`aporia_rag.cli`)
 
@@ -601,14 +602,15 @@ on every request.
 | 20.3 | `ask` on an empty index says to run `aporia-rag index` and never calls the chat model |
 | 20.4 | A chat model that is not pulled is a one-line error naming `ollama pull <model>` |
 | 20.5 | `ask` releases its connections, the chat model's included |
-| 20.6 | `ask` ends with how long the answer took, split into retrieval, grading, generation and the search for other authors (a scripted clock makes the numbers exact) |
+| 20.6 | `ask` ends with how long the answer took, split into rewriting (only when a question was rewritten), retrieval, grading, generation and the search for other authors (a scripted clock makes the numbers exact) |
 | 20.7 | `ask` grades every retrieved passage: the model answers from the relevant ones only, numbered from 1, and the passages left out are listed as not relevant |
-| 20.8 | When no passage is relevant, `ask` says so, lists the passages it left out as not relevant (as when some are relevant), and never asks the model for an answer |
+| 20.8 | When no passage is relevant, even after the rewritten search (25.2), `ask` says so, counting every passage graded, lists them all as left out (as when some are relevant), and never asks the model for an answer |
 | 20.9 | After the answer, `ask` grades the best passage of the other authors (those with no passage among the retrieved ones, at most 4) and lists the relevant ones as other authors who discuss the question |
 | 20.10 | With `--author`, `ask` does not look for other authors |
 | 20.11 | `ask --all-authors` grades the best passage of every author, prints the survey of the relevant ones, lists the others as not relevant, and does not look for other authors (the question is embedded once) |
 | 20.12 | `ask` with one author named in the question answers from that author's passages only and does not look for other authors |
-| 20.13 | `ask` with two or more authors named in the question surveys them: the best passage of each, one section per author |
+| 20.13 | `ask` with two or more authors named in the question compares them: it prints the question it asked about each author on its own (25.6), and surveys the best relevant passage of each, one section per author, in the order of the names |
+| 20.14 | When the first search finds nothing relevant, `ask` says that it searched again and with which query, answers from what that search found, and lists the passages of both searches that it left out |
 
 ## Component 21: Relevance grader (`aporia_rag.grading.relevance`)
 
@@ -714,6 +716,64 @@ it, which `RelevanceGrader` satisfies structurally, as `Retriever` satisfies `Se
 | 23.8 | Without `--grade`, `evaluate` sends no request to the chat model |
 | 23.9 | The packaged loop question set loads, and has questions with and without evidence |
 
+---
+
+## The corrective loop: components 24-25
+
+Measured before it was built (2026-10-20). The grader keeps no passage in the top 5 for 2 of the
+40 retrieval questions whose answer is in the corpus, and for all 4 questions outside it. For the
+in-corpus failures, a search query in the author's own vocabulary finds the evidence: the chat
+model's rewrites put it in the top 5 for all 3 retrieval questions that fail (ranks 1-5, 5 and 4,
+against none in the top 5), in 1.5-1.9 s each (`data/eval/spike_rewrites.py`). Comparisons fail
+differently: for "How do Kant and Mill differ on lying?" the grader leaves out every passage, even
+those on lying, but keeps each side when asked "What does Immanuel Kant say about lying?" and
+"What does John Stuart Mill say about lying?" (3 of 3; two plain-code framings of the original
+question scored 1 of 3; `data/eval/spike_comparison.py`).
+
+So the loop adds model calls only where they are needed:
+
+- **Normal path** (a passage is kept): unchanged, one verdict per passage and one answer.
+- **Loop path** (nothing kept): one rewrite, one more search with the same `k` and scope, verdicts
+  for the passages not graded yet, then an answer or "none". At most one rewrite: one was enough in
+  the spike. Questions outside the corpus pay for it too (about 9 s) until the web fallback.
+- **Comparison path** (two or more authors named): one call for the subject of the comparison;
+  plain code then asks the same question about each author. A survey of all authors
+  (`--all-authors`) is not a comparison and is never rewritten.
+
+The rewriter's prompt is the one the spike measured. The search query it writes is used for the
+search only: verdicts and the answer are always about the reader's question.
+
+**Why LangGraph.** The loop is a small state machine: retrieve, grade, then generate, rewrite or
+stop. LangGraph states it as nodes and conditional edges, which the web fallback (component 26)
+extends with one node and one edge, and it draws the graph (Mermaid) for the README. It is the only
+package that uses LangGraph (A.3); the graph sits above the components it calls and below the
+composition root that builds it (A.1).
+
+## Component 24: Query rewriter (`aporia_rag.retrieval.rewriter`)
+
+| # | Test |
+|---|---|
+| 24.1 | `rewrite` makes one structured call: the rewriting prompt, which names every corpus author it is given, then the question; it returns the model's query without surrounding whitespace |
+| 24.2 | `per_author` makes one structured call for the subject of a comparison (the question, then the authors compared) and returns, for each author in the order given, "What does <author> say about <subject>?"; a question mark or full stop that ends the subject is dropped |
+| 24.3 | A blank query or subject does not fit the reply schema (so an adapter reports it as a `ProviderError`, as in 18.8) |
+
+## Component 25: Corrective graph (`aporia_rag.graph`)
+
+The graph is tested with the real retriever, grader, generator and rewriter over in-memory fakes
+(`HashingEmbedder`, `InMemoryVectorStore`, `ScriptedChatModel`), so each test states which
+passages exist, which ones the scripted model keeps, and what it rewrites. `search` moved here from
+the CLI with the scope rules, so the `search` command and the graph share them (covered by 15.x).
+
+| # | Test |
+|---|---|
+| 25.1 | When the first search finds a relevant passage, the graph answers from the relevant passages and makes no other model call: one verdict per passage, then the answer |
+| 25.2 | When no passage of the first search is relevant, the question is rewritten once (the rewriter gets the question and the corpus authors) and searched again with the same `k` and author filter; the new passages are graded against the original question, and the answer comes from the relevant ones |
+| 25.3 | A passage already graded in the first search is not graded again |
+| 25.4 | When the rewritten search finds nothing relevant either, there is no answer and no third search, and every graded passage is left out |
+| 25.5 | A survey of all authors is never rewritten: the best passage of each author, graded against the question, then a survey of the relevant ones or no answer |
+| 25.6 | A comparison (two or more authors named) makes one model call for the per-author questions; each author's best passage is found with that author's question, among that author's works only, and graded against it; the survey answers the original question, in the order of the authors |
+| 25.7 | The outcome records how long each stage took, summed over both searches: rewriting (only when it ran), retrieval, grading and generation (a scripted clock makes the times exact) |
+
 ## Architecture rules (`tests/unit/test_architecture.py`, run in the default suite)
 
 The dependency rules of [architecture.md](architecture.md) are checked by
@@ -723,7 +783,8 @@ instead of waiting for a code review to notice it.
 
 | # | Test |
 |---|---|
-| A.1 | Layers: `cli` > `bootstrap` > {`adapters`, `config`, `evaluation`, `generation`, `grading`, `indexing`, `ingestion`, `retrieval`} > `domain`; nothing imports a layer above it, and the middle packages do not import each other |
+| A.1 | Layers: `cli` > `bootstrap` > `graph` > {`adapters`, `config`, `evaluation`, `generation`, `grading`, `indexing`, `ingestion`, `retrieval`} > `domain`; nothing imports a layer above it, and the middle packages do not import each other |
+| A.3 | LangGraph is imported only by `graph` |
 | A.2 | Provider libraries (`chromadb`, `ollama`) are imported only by `adapters` (and so are reachable only through `bootstrap`) |
 
 ## Real-model tests (opt-in: `make test-llm`; need Ollama with the configured embedding and chat models)
@@ -737,3 +798,6 @@ instead of waiting for a code review to notice it.
 | L.5 | The relevance grader, with the configured chat model, keeps the Kant passage and leaves out the Hobbes passage for a question about what is good without qualification |
 | L.6 | The configured chat model surveys a Kant and a Mill passage on what makes something morally good: Kant's section speaks of the good will, Mill's of happiness |
 | L.7 | Expected to fail (known limitation, 2026-10-20): for "How do Kant and Mill differ on lying?", the relevance grader should keep Kant's passage on truthfulness from duty (one side of the comparison) and leave out Mill's passage on dissent; it leaves out both |
+| L.8 | The configured chat model rewrites "Can a dishonourable act ever really be in our interest?" into one short search query: a single line of at most 30 words, not the question itself |
+| L.9 | For "How do Kant and Mill differ on lying?", `per_author` returns one question per author, each naming its author and the subject (lying) |
+| L.10 | The relevance grader keeps Kant's and Mill's passages on lying, each judged against its own author's question, and leaves out Mill's passage on dissent (the comparison spike of 2026-10-20, 3 of 3) |

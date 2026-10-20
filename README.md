@@ -25,18 +25,17 @@ Self-RAG ([Asai et al., 2023](https://arxiv.org/abs/2310.11511)) patterns.
 flowchart LR
     Q([Question]) --> R[Retrieve from corpus]
     R --> GD{Grade each passage<br/>for relevance}
-    GD -- enough relevant --> GEN[Generate answer<br/>with citations]
-    GD -- not enough --> RW[Rewrite query]
-    RW --> WS[Web search fallback]
-    WS --> GEN
-    GEN --> V{Grounded in sources?<br/>Answers the question?}
-    V -- yes --> A([Answer + citations])
-    V -- not grounded --> GEN
-    V -- off target --> RW
+    GD -- some relevant --> GEN[Generate answer<br/>with citations]
+    GD -- none relevant,<br/>first search --> RW[Rewrite query in<br/>the corpus's words]
+    RW --> R
+    GD -. none relevant again .-> WS[Web search fallback<br/>planned]
+    WS -.-> GEN
+    GEN -.-> V{Grounded in sources?<br/>Answers the question?<br/>planned}
+    V -.-> A([Answer + citations])
 ```
 
-Every loop has a hard retry cap, so the agent always terminates, with an honest "I don't know"
-if it has to.
+Solid arrows are built; dotted ones are planned. Every loop has a hard retry cap (one rewrite
+today), so the agent always terminates, with an honest "nothing found answers this" if it has to.
 
 ## Corpus
 
@@ -101,11 +100,12 @@ starts over. `search` shows what retrieval alone finds, with similarity scores a
 `ask` keeps the passages the chat model judges relevant and has it answer from them, citing them as
 `[1]`, `[2]`...; under the answer it lists the passages used, the ones left out as not relevant, the
 other authors in the corpus who discuss the question, and the time each step took. When no passage
-is relevant, it says so instead of answering. `ask --all-authors` grades the best passage of every
+is relevant, it rewrites the question once into the corpus's vocabulary, says so, and searches
+again; if nothing is relevant then either, it says so instead of answering. `ask --all-authors` grades the best passage of every
 author and answers with one section per author, headed by the author and the passage number
 (about a minute on a laptop). A question that names authors is answered from those authors only:
 one named author as with `--author` ("What does Kant say about lying?"), two or more as a survey of
-them ("How do Kant and Mill differ on lying?").
+them ("How do Kant and Mill differ on lying?"), asking each author about the subject on their own.
 
 ## Configuration
 
@@ -152,9 +152,9 @@ write the component, then run the full quality gate. Test lists live in
 - [x] Relevance grader, pointers to other authors, survey of all authors (`ask --all-authors`),
   authors named in the question
 - [x] Grader evaluation against the gold set (`evaluate --grade`) and loop questions
-- [ ] Query rewriter
+- [x] Corrective graph (LangGraph): one query rewrite when nothing retrieved is relevant;
+  comparisons asked of each author on their own
 - [ ] Web search fallback
 - [ ] Groundedness and answer-relevance graders
-- [ ] Full corrective graph with retry caps
 - [ ] Evaluation: corrective vs. baseline RAG on a curated question set
 - [ ] Demo UI

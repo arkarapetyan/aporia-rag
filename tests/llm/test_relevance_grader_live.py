@@ -1,4 +1,4 @@
-"""Real-model tests for the relevance grader (test plan: L.5, L.7).
+"""Real-model tests for the relevance grader (test plan: L.5, L.7, L.10).
 
 Opt-in: `make test-llm`. It uses the configured chat model. The verdicts are
 requested at temperature 0, so the outcome is stable from run to run.
@@ -9,7 +9,7 @@ import pytest
 from aporia_rag.bootstrap import Container
 from aporia_rag.config import load_settings
 from aporia_rag.domain.models import RetrievedChunk
-from support.passages import HOBBES, KANT, KANT_ON_LYING, MILL_ON_DISSENT
+from support.passages import HOBBES, KANT, KANT_ON_LYING, MILL_ON_DISSENT, MILL_ON_LYING
 
 pytestmark = pytest.mark.llm
 
@@ -41,3 +41,23 @@ def test_keeps_one_side_of_a_comparison() -> None:  # L.7
         )
 
     assert [passage.chunk for passage in kept] == [KANT_ON_LYING]
+
+
+def test_keeps_each_side_when_asked_about_each_author() -> None:  # L.10
+    kant, mill = (
+        "What does Immanuel Kant say about lying?",
+        "What does John Stuart Mill say about lying?",
+    )
+    cases = [
+        (kant, KANT_ON_LYING, True),
+        (mill, MILL_ON_LYING, True),
+        (mill, MILL_ON_DISSENT, False),
+    ]
+
+    with Container(load_settings()) as container:
+        verdicts = [
+            container.relevance_grader.is_relevant(question, RetrievedChunk(chunk=chunk, score=0.5))
+            for question, chunk, _ in cases
+        ]
+
+    assert verdicts == [wanted for _, _, wanted in cases]

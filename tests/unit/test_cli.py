@@ -8,6 +8,7 @@ the index at a temporary directory.
 
 import json
 import re
+from collections.abc import Callable
 from pathlib import Path
 
 import httpx
@@ -811,8 +812,10 @@ def test_ask_reports_how_long_retrieval_and_generation_took(
     server = FakeOllamaServer()
     _index(index_manifest, settings, server)
     capsys.readouterr()
-    clock = iter([100.0, 100.4, 106.4, 112.9, 115.0])  # start, retrieved, graded, answered, others
+    clock = iter([100.0, 113.0, 115.1])  # start, answered, other authors done
     monkeypatch.setattr("aporia_rag.cli.perf_counter", lambda: next(clock))
+    stages = iter([0.0, 0.4, 0.4, 6.4, 6.4, 12.9])  # retrieve, grade, generate: start and end
+    monkeypatch.setattr("aporia_rag.graph.corrective.perf_counter", lambda: next(stages))
 
     exit_code = _run(
         "ask", GOOD_WILL_QUESTION,
@@ -821,12 +824,32 @@ def test_ask_reports_how_long_retrieval_and_generation_took(
 
     assert exit_code == 0
     assert capsys.readouterr().out.endswith(
-        "\nanswered in 15.0s (retrieval 0.4s, grading 6.0s, generation 6.5s, other authors 2.1s)\n"
+        "\nanswered in 15.1s (retrieval 0.4s, grading 6.0s, generation 6.5s, other authors 2.1s)\n"
     )
 
 
 def _not_hobbes(prompt: str) -> str:
     return f'{{"relevant": {str("Thomas Hobbes" not in prompt).lower()}}}'
+
+
+REWRITTEN = "nasty brutish short"
+
+
+def _verdicts_and_rewrite(
+    is_relevant: Callable[[str], bool], query: str = REWRITTEN
+) -> Callable[[str], str]:
+    """Verdicts by `is_relevant`; the rewriter (its prompt is the bare question) gets `query`."""
+
+    def reply(prompt: str) -> str:
+        if prompt.startswith("Question: "):
+            return f'{{"query": "{query}"}}'
+        return f'{{"relevant": {str(is_relevant(prompt)).lower()}}}'
+
+    return reply
+
+
+def _rewrite_line(query: str = REWRITTEN) -> str:
+    return f'Nothing relevant was found, so the question was searched again as: "{query}"'
 
 
 def test_ask_answers_from_the_relevant_passages_and_lists_those_left_out(
@@ -861,7 +884,9 @@ def test_ask_answers_from_the_relevant_passages_and_lists_those_left_out(
 def test_ask_with_no_relevant_passage_says_so_without_an_answer(
     index_manifest: Path, settings: Settings, capsys: pytest.CaptureFixture[str]
 ) -> None:  # 20.8
-    server = FakeOllamaServer(structured_reply=lambda prompt: '{"relevant": false}')
+    # The first search finds Hobbes and Kant's first section; the rewritten one, Kant's second.
+    query = "Everything in nature works according to laws"
+    server = FakeOllamaServer(structured_reply=_verdicts_and_rewrite(lambda prompt: False, query))
     _index(index_manifest, settings, server)
     capsys.readouterr()
 
@@ -874,10 +899,11 @@ def test_ask_with_no_relevant_passage_says_so_without_an_answer(
     assert server.chat_requests == []  # graded, but never asked for an answer
     output = capsys.readouterr().out
     assert output.startswith(
-        "None of the 2 passages found answers this question.\n\nLeft out as not relevant:\n"
+        f"{_rewrite_line(query)}\n\nNone of the 3 passages found answers this question.\n\n"
+        "Left out as not relevant:\n"
     )
     left_out = output.split("Left out as not relevant:\n", 1)[1].split("\n\n", 1)[0]
-    assert len(left_out.splitlines()) == 2  # both graded passages, so the decision can be checked
+    assert len(left_out.splitlines()) == 3  # both searches, so every decision can be checked
     assert all(re.match(r"^- .+ \(.+#\d+\)$", line) for line in left_out.splitlines())
 
 
@@ -991,32 +1017,74 @@ def test_ask_answers_from_the_one_author_named_in_the_question(
     assert "Other authors" not in output
 
 
-def _relevant_then_survey_of_two(prompt: str) -> str:
+def _subject_verdicts_then_survey_of_two(prompt: str) -> str:
     if prompt.startswith("[1] "):  # the survey: the numbered passages, then the question
         return '{"paragraphs": ["The first.", "The second."]}'
+    if "\nAuthors compared: " in prompt:  # the subject of the comparison
+        return '{"subject": "the good"}'
     return RELEVANT
 
 
-def test_ask_surveys_the_authors_named_in_the_question(
+def test_ask_compares_the_authors_named_in_the_question(
     index_manifest: Path, settings: Settings, capsys: pytest.CaptureFixture[str]
 ) -> None:  # 20.13
-    server = FakeOllamaServer(structured_reply=_relevant_then_survey_of_two)
+    server = FakeOllamaServer(structured_reply=_subject_verdicts_then_survey_of_two)
     _index(index_manifest, settings, server)
     capsys.readouterr()
 
     exit_code = _run(
-        "ask", "What do Kant and Hobbes call good without qualification?",
+        "ask", "How do Kant and Hobbes differ on the good?",
         manifest=index_manifest, settings=settings, transport=server.transport,
     )  # fmt: skip
 
     assert exit_code == 0
-    *verdicts, survey = server.structured_requests
-    assert len(verdicts) == 2  # the best passage of each named author
+    _subject, *verdicts, survey = server.structured_requests
+    asked = [
+        "What does Immanuel Kant say about the good?",
+        "What does Thomas Hobbes say about the good?",
+    ]
+    # the best passage of each named author, graded against that author's question
+    assert [
+        verdict["messages"][-1]["content"].rsplit("Question: ", 1)[1] for verdict in verdicts
+    ] == asked
     assert survey["messages"][0]["content"] == SURVEY_PROMPT
     assert capsys.readouterr().out.startswith(
         f"{SCOPE_LINE}Immanuel Kant, Thomas Hobbes.\n\n"
-        "Thomas Hobbes [1]\nThe first.\n\nImmanuel Kant [2]\nThe second.\n"  # best first
+        "Asked of each author on their own:\n"
+        f"- {asked[0]}\n- {asked[1]}\n\n"
+        "Immanuel Kant [1]\nThe first.\n\nThomas Hobbes [2]\nThe second.\n"  # in the names' order
     )
+
+
+def test_ask_searches_again_with_a_rewritten_query_when_nothing_is_relevant(
+    index_manifest: Path, settings: Settings, capsys: pytest.CaptureFixture[str]
+) -> None:  # 20.14
+    server = FakeOllamaServer(
+        reply=REPLY,
+        structured_reply=_verdicts_and_rewrite(lambda prompt: "Thomas Hobbes" in prompt),
+    )
+    _index(index_manifest, settings, server)
+    capsys.readouterr()
+
+    exit_code = _run(
+        "ask", GOOD_WILL_QUESTION, "-k", "1",  # finds Kant first, who is not kept
+        manifest=index_manifest, settings=settings, transport=server.transport,
+    )  # fmt: skip
+
+    assert exit_code == 0
+    [chat] = server.chat_requests
+    assert chat["messages"][-1]["content"].endswith(f"Question: {GOOD_WILL_QUESTION}")
+    output = capsys.readouterr().out
+    assert output.startswith(
+        f"{_rewrite_line()}\n\n{REPLY}\n\nPassages:\n"
+        "[1] Thomas Hobbes, Leviathan, Chapter XIII (hobbes-leviathan/chapter-xiii#0)\n"
+    )
+    assert (
+        "\nLeft out as not relevant:\n"
+        "- Immanuel Kant, Fundamental Principles of the Metaphysic of Morals, First Section "
+        "(kant-groundwork/first-section#0)\n"
+    ) in output
+    assert re.search(r"\nanswered in [\d.]+s \(rewriting [\d.]+s, retrieval [\d.]+s, ", output)
 
 
 def test_ask_releases_both_models_connections(

@@ -39,6 +39,7 @@ from aporia_rag.domain.models import (
     SourceMetadata,
 )
 from aporia_rag.domain.ports import Embedder
+from aporia_rag.graph.corrective import Scope
 from support.builders import make_chunk
 from support.fakes import FakeOllamaServer, HashingEmbedder
 
@@ -258,6 +259,7 @@ def test_the_generator_and_grader_share_the_containers_chat_model_and_it_is_clos
         assert container.chat_model is container.chat_model
         assert container.generator is container.generator
         assert container.relevance_grader is container.relevance_grader
+        assert container.query_rewriter is container.query_rewriter
         kept = container.relevance_grader.relevant(question, [passage])
         answer = container.generator.answer(question, kept)
         assert not server.transport.closed
@@ -265,3 +267,25 @@ def test_the_generator_and_grader_share_the_containers_chat_model_and_it_is_clos
     assert answer.text == "Only a good will [1]."
     assert len(server.structured_requests) == 1  # the verdict went through the same model
     assert server.transport.closes == 1  # one chat model client; nothing else was built
+
+
+def test_the_containers_corrective_graph_answers_through_its_components(
+    tmp_path: Path,
+) -> None:  # 14.11
+    server = FakeOllamaServer(reply="Only a good will [1].")
+    document = Document(
+        id="kant/first-section",
+        text="Nothing can be called good without qualification, except a good will.",
+        metadata=SourceMetadata(author="Immanuel Kant", title="Groundwork", source_id="test:kant"),
+    )
+
+    with Container(_container_settings(tmp_path), transport=server.transport) as container:
+        assert container.corrective_rag is container.corrective_rag
+        container.indexer.run([document])
+        outcome = container.corrective_rag.answer(
+            "Is anything good without qualification?", Scope(), k=1, authors=("Immanuel Kant",)
+        )
+
+    assert outcome.answer is not None
+    assert outcome.answer.text == "Only a good will [1]."
+    assert server.transport.closes == 2  # the embedder's client and the chat model's, once each

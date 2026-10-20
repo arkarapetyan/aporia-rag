@@ -12,6 +12,7 @@ requires-python = ">=3.12"
 dependencies = [
     "chromadb>=1.5",
     "httpx>=0.28",
+    "langgraph>=1.2",
     "ollama>=0.6",
     "pydantic>=2.13",
     "pydantic-settings>=2.15",
@@ -81,11 +82,13 @@ include_external_packages = true
 
 [[tool.importlinter.contracts]]
 id = "layers"
-name = "Dependencies point inward: cli > bootstrap > adapters and use cases > domain"
+name = "Dependencies point inward: cli > bootstrap > graph > adapters and use cases > domain"
 type = "layers"
 layers = [
     "aporia_rag.cli",
     "aporia_rag.bootstrap",
+    # The corrective loop: it calls the use cases, and the composition root builds it.
+    "aporia_rag.graph",
     # `|`: independent siblings, which must not import each other either.
     "aporia_rag.adapters | aporia_rag.config | aporia_rag.evaluation | aporia_rag.generation | aporia_rag.grading | aporia_rag.indexing | aporia_rag.ingestion | aporia_rag.retrieval",
     "aporia_rag.domain",
@@ -106,6 +109,27 @@ source_modules = [
     "aporia_rag.retrieval",
 ]
 forbidden_modules = ["chromadb", "ollama"]
+
+[[tool.importlinter.contracts]]
+id = "orchestration-framework"
+name = "LangGraph is imported only by the graph"
+type = "forbidden"
+source_modules = [
+    "aporia_rag.adapters",
+    "aporia_rag.bootstrap",
+    "aporia_rag.cli",
+    "aporia_rag.config",
+    "aporia_rag.domain",
+    "aporia_rag.evaluation",
+    "aporia_rag.generation",
+    "aporia_rag.grading",
+    "aporia_rag.indexing",
+    "aporia_rag.ingestion",
+    "aporia_rag.retrieval",
+]
+forbidden_modules = ["langgraph"]
+# Direct imports only: `cli` and `bootstrap` reach LangGraph through `graph`, as intended.
+allow_indirect_imports = true
 
 # --------------------------------------------------------------------------
 # Linting / formatting
