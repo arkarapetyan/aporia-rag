@@ -17,6 +17,10 @@
 # - 2026-10-16: pooling. Every chunk the three bake-off models ranked in a
 #   top 10 (808 in all) was read and judged; a few answering passages they
 #   all missed were found by search. 217 passages added, 301 in all.
+# - 2026-10-20: the grader evaluation (`evaluate --grade`) listed 60
+#   disagreements with this set; reading them found 12 answering passages
+#   the pooling had judged out (most marked borderline), 313 in all, and 3
+#   existing passages that only mention the answer in passing (now marked).
 # A passage a model retrieves that answers in words no search anticipated
 # still counts as a miss until it is added here.
 #
@@ -49,6 +53,10 @@ quote = "everywhere there is one principle of justice, which is the interest of 
 [[questions.evidence]]
 document = "plato-republic/book-i"
 quote = "but he also said that justice is the interest of the stronger"
+[[questions.evidence]]
+# borderline: his thesis as Polemarchus restates it (added 2026-10-20 from the grader evaluation)
+document = "plato-republic/book-i"
+quote = "Thrasymachus said that for subjects to do what was commanded by their rulers is just"
 
 [[questions]]
 id = "plato-invisible-ring"
@@ -130,6 +138,10 @@ quote = "if we only have a guardian who has this knowledge our State will be per
 [[questions.evidence]]
 document = "plato-republic/book-iii"
 quote = "Let us note among the guardians those who in their whole life show the greatest eagerness"
+[[questions.evidence]]
+# borderline: the answer of Book III, before the philosopher-kings of Book V (added 2026-10-20)
+document = "plato-republic/book-iii"
+quote = "And that the best of these must rule"
 
 [[questions]]
 id = "plato-cave"
@@ -226,6 +238,14 @@ quote = "Of the two imperfect kinds that which most resembles the perfect is the
 [[questions.evidence]]
 document = "aristotle-nicomachean-ethics/book-viii-chapter-v"
 quote = "Friendship of whatever kind is based upon good or pleasure"
+[[questions.evidence]]
+# added 2026-10-20 from the grader evaluation
+document = "aristotle-nicomachean-ethics/book-viii-chapter-xii"
+quote = "one would be inclined to separate off from the rest the Friendship of Kindred, and that of Companions"
+[[questions.evidence]]
+# added 2026-10-20 from the grader evaluation
+document = "aristotle-nicomachean-ethics/book-viii-chapter-viii"
+quote = "there is another form of Friendship, that, namely, in which the one party is superior to the other"
 
 # --- Cicero, De Officiis ---------------------------------------------------
 
@@ -437,6 +457,10 @@ quote = "they must be choice-worthy, even on the supposition that they neither o
 [[questions.evidence]]  # borderline: Mill, only pleasure is good in itself
 document = "mill-utilitarianism/chapter-iv"
 quote = "nothing is a good to human beings but in so far as it is either itself pleasurable"
+[[questions.evidence]]
+# borderline: Aristotle's final good, not yet named happiness (added 2026-10-20)
+document = "aristotle-nicomachean-ethics/book-i-chapter-iv"
+quote = "that which is an object of choice always in itself, and never with a view to any other"
 
 [[questions]]
 id = "kant-universal-law"
@@ -496,6 +520,10 @@ quote = "a man is not a thing, that is to say, something which can be used merel
 [[questions.evidence]]
 document = "kant-metaphysic-of-morals/second-section"
 quote = "He who is thinking of making a lying promise to others will see at once that he would be using another man merely as a mean"
+[[questions.evidence]]
+# borderline: Cicero on taking from another for one's own benefit (added 2026-10-20)
+document = "cicero-de-officiis/book-iii"
+quote = "if merely for one's own benefit one were to take something away from a man"
 
 # --- Mill, Utilitarianism --------------------------------------------------
 
@@ -554,6 +582,14 @@ quote = "will more really and truly enjoy true pleasure"
 [[questions.evidence]]  # borderline: Plato: the philosopher's pleasure is best, judged by experience, wisdom and reason
 document = "plato-republic/book-ix"
 quote = "the pleasure of the intelligent part of the soul is the pleasantest of the three"
+[[questions.evidence]]
+# added 2026-10-20 from the grader evaluation
+document = "aristotle-nicomachean-ethics/book-vii-appendix-book-vii-chapters-12-to-15-bekker"
+quote = "Granting that some Pleasures are low, there is no reason why some particular Pleasure may not be very good"
+[[questions.evidence]]
+# added 2026-10-20 from the grader evaluation
+document = "aristotle-nicomachean-ethics/book-vii-appendix-book-vii-chapters-12-to-15-bekker"
+quote = "We have already said in what sense all Pleasures are good per se and in what sense not all are good"
 
 [[questions]]
 id = "mill-proof-of-utility"
@@ -598,6 +634,10 @@ quote = "what is moral is, the exclusive subordination of it to the social sympa
 [[questions.evidence]]
 document = "mill-utilitarianism/chapter-v"
 quote = "Justice remains the appropriate name for certain social utilities which are vastly more important"
+[[questions.evidence]]
+# borderline: the first step of the answer, the feeling's origin is not its authority (added 2026-10-20)
+document = "mill-utilitarianism/chapter-v"
+quote = "there is no necessary connexion between the question of its origin, and that of its binding force"
 
 # --- Nietzsche, The Genealogy of Morals -------------------------------------
 
@@ -619,6 +659,10 @@ quote = "this is the origin of the antithesis of good and bad"
 [[questions.evidence]]
 document = "nietzsche-genealogy-of-morals/first-essay-good-and-evil-good-and-bad"
 quote = 'is the root idea, out of which have necessarily developed "good"'
+[[questions.evidence]]
+# borderline: the negative half, like the quote above on where it did not originate (added 2026-10-20)
+document = "nietzsche-genealogy-of-morals/first-essay-good-and-evil-good-and-bad"
+quote = 'this hypothesis as to the genesis of the value "good" cannot be historically upheld'
 
 [[questions]]
 id = "nietzsche-resentment-creates-values"
@@ -847,6 +891,10 @@ quote = "is not idea, but a thing-in-itself"
 [[questions.evidence]]  # borderline: apart from the idea, only will remains
 document = "schopenhauer-world-as-will-vol1/third-book-the-world-as-idea"
 quote = "As soon as knowledge, the world as idea, is abolished, there remains nothing but mere will, blind effort"
+[[questions.evidence]]
+# borderline: the world as idea, and something besides it (added 2026-10-20)
+document = "schopenhauer-world-as-will-vol1/second-book-the-world-as-will"
+quote = "the transition from the world as mere idea of the knowing subject to whatever it may be besides this"
 
 [[questions]]
 id = "schopenhauer-thing-in-itself"
@@ -944,6 +992,7 @@ quote = "A state of exalted pleasure lasts only moments"
 document = "seneca-minor-dialogues/of-a-happy-life"
 quote = "pleasure dies at the very moment when it charms us most"
 [[questions.evidence]]  # borderline: Aristotle: pleasure dulls as activity slackens
+# borderline: a passing remark; the chunk is about pleasure perfecting life (2026-10-20)
 document = "aristotle-nicomachean-ethics/book-x-chapter-iv"
 quote = "the act of Working is not of the kind it was at first, but careless, and so the Pleasure too is dulled"
 [[questions.evidence]]  # borderline: Aristotle: human faculties cannot work unintermittingly
@@ -1003,9 +1052,11 @@ quote = "Covenants, without the Sword, are but Words, and of no strength to secu
 document = "hobbes-leviathan/part-ii-of-common-wealth-chapter-xviii-of-the-rights-of-soveraignes-by-institution"
 quote = "Covenants being but words, and breath, have no force to oblige, contain, constrain, or protect any man, but what it has from the publique Sword"
 [[questions.evidence]]  # borderline: men submit for protection, else war of every man
+# borderline: a passing remark in the chapter on succession (2026-10-20)
 document = "hobbes-leviathan/part-ii-of-common-wealth-chapter-xix-of-the-severall-kinds-of-common-wealth-by-institution-and-of-succession-to-the-soveraigne-power"
 quote = "every man having equall right to submit himselfe to such as he thinks best able to protect him"
 [[questions.evidence]]  # borderline: sovereignty by acquisition: submission to avoid death
+# borderline: a passing remark on dominion by conquest (2026-10-20)
 document = "hobbes-leviathan/part-ii-of-common-wealth-chapter-xx-of-dominion-paternall-and-despoticall"
 quote = "by the Submission of each particular, to avoyd death or bonds"
 
@@ -1078,6 +1129,10 @@ quote = "every opinion which embodies somewhat of the portion of truth which the
 [[questions.evidence]]
 document = "mill-on-liberty/chapter-ii"
 quote = "the assumption of infallibility is merely shifted from one point to another"
+[[questions.evidence]]
+# borderline: Hobbes against suppressing true philosophy (added 2026-10-20)
+document = "hobbes-leviathan/part-iv-of-the-kingdome-of-darknesse-chapter-xlvi-of-darknesse-from-vain-philosophy-and-fabulous-traditions"
+quote = "Let therefore the truth be first examined by competent Judges, or confuted by them that pretend to know the contrary"
 
 [[questions]]
 id = "mill-individuality"

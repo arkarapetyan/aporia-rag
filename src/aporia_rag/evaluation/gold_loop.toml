@@ -24,6 +24,10 @@
 #   searches of all 7,705 chunks and by reading the chapters around each hit)
 #   and 4 outside it. Not yet pooled: the passages a model retrieves in words
 #   no search anticipated still count as misses until they are judged and added.
+# - 2026-10-20 (pooled): every chunk qwen3-embedding:0.6b ranked in a top 10
+#   was read and judged; 8 passages added (59 in all), among them Cicero's
+#   "promises are not binding which are extorted by intimidation", which no
+#   keyword search had found.
 
 # --- In the corpus ----------------------------------------------------------
 
@@ -51,7 +55,7 @@ quote = "upon promise not to run away, nor to do violence to his Master, is trus
 # borderline: the vanquished is bound by the covenant he made under threat, not by defeat
 document = "hobbes-leviathan/part-ii-of-common-wealth-chapter-xx-of-dominion-paternall-and-despoticall"
 quote = "It is not therefore the Victory, that giveth the right of Dominion over the Vanquished, but his own Covenant"
-# Cicero: yes to a lawful enemy (Regulus), no to pirates.
+# Cicero: yes to a lawful enemy (Regulus), no to pirates, and no when extorted by intimidation (Book I).
 [[questions.evidence]]
 document = "cicero-de-officiis/book-i"
 quote = "if under stress of circumstances individuals have made any promise to the enemy, they are bound to keep their word even then"
@@ -72,6 +76,18 @@ quote = "As if force could be brought to bear upon a brave man!"
 [[questions.evidence]]
 document = "schopenhauer-world-as-will-vol1/fourth-book-the-world-as-will"
 quote = "a promise is certainly not binding when it has been extorted by direct bodily violence"
+[[questions.evidence]]
+# found by pooling 2026-10-20: Cicero's general rule, against his Regulus examples
+document = "cicero-de-officiis/book-i"
+quote = "those promises are not binding which are extorted by intimidation"
+[[questions.evidence]]
+# borderline: the praetors' edict that leaves out promises secured by force (pooling 2026-10-20)
+document = "cicero-de-officiis/book-iii"
+quote = "they have not been secured through force or criminal fraud"
+[[questions.evidence]]
+# borderline: Hannibal's captives, bound by their oath to the enemy (pooling 2026-10-20)
+document = "cicero-de-officiis/book-i"
+quote = "because they were guilty of perjury in not returning"
 
 [[questions]]
 id = "hobbes-refusing-orders"
@@ -105,6 +121,18 @@ quote = "And if it be onely to defend their persons, it is not unjust at all"
 [[questions.evidence]]
 document = "hobbes-leviathan/part-ii-of-common-wealth-chapter-xxi-of-the-liberty-of-subjects"
 quote = "The Obligation of Subjects to the Soveraign is understood to last as long, and no longer, than the power lasteth, by which he is able to protect them"
+[[questions.evidence]]
+# borderline: a refusal that is not allowed (pooling 2026-10-20)
+document = "hobbes-leviathan/part-ii-of-common-wealth-chapter-xxvii-of-crimes-excuses-and-extenuations"
+quote = "if the Subject shall refuse to obey the Command in any thing, contrary to the liberty granted, this is neverthelesse a Sinne"
+[[questions.evidence]]
+# borderline: obedience ends with protection, as in chapter XXI (pooling 2026-10-20)
+document = "hobbes-leviathan/a-review-and-conclusion"
+quote = "for it is then, that he hath no longer Protection from him"
+[[questions.evidence]]
+# borderline: the soldier's stricter obligation (pooling 2026-10-20)
+document = "hobbes-leviathan/a-review-and-conclusion"
+quote = "then he hath not the liberty to submit to a new Power, as long as the old one keeps the field"
 
 [[questions]]
 id = "aristotle-knowing-better"
@@ -159,6 +187,14 @@ quote = "like the man who, having it, is overpowered by sleep or wine"
 [[questions.evidence]]
 document = "aristotle-nicomachean-ethics/book-iii-chapter-iv"
 quote = "the man who fails of self-control acts from Lust but not from Moral Choice"
+[[questions.evidence]]
+# found by pooling 2026-10-20
+document = "aristotle-nicomachean-ethics/book-vii-chapter-vii"
+quote = "those are better who are carried off their feet by a sudden access of temptation than they who have Reason but do not abide by it"
+[[questions.evidence]]
+# borderline: Aristotle's objection to the view that it is only opinion (pooling 2026-10-20)
+document = "aristotle-nicomachean-ethics/book-vii-chapter-ii"
+quote = "the not abiding by it in the face of strong lusts would be excusable: but wickedness is not excusable"
 
 [[questions]]
 id = "descartes-machine-or-human"
