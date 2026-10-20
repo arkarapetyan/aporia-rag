@@ -1,13 +1,15 @@
-"""Tests for aporia_rag.evaluation.gold, the gold question set (test plan: 16.1-16.3)."""
+"""Tests for aporia_rag.evaluation.gold, the gold question sets (test plan: 16.1-16.3, 23.9)."""
 
 from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
 
+from aporia_rag import evaluation
 from aporia_rag.evaluation.gold import Evidence, GoldQuestion, GoldSet, load_gold_set
 from aporia_rag.ingestion.corpus import load_manifest
 
+LOOP_SET = Path(evaluation.__file__).parent / "gold_loop.toml"
 KANT = {"document": "kant-metaphysic-of-morals/first-section", "quote": "except a good will"}
 
 
@@ -35,9 +37,16 @@ class TestGoldQuestion:
         with pytest.raises(ValidationError, match="question"):
             _question(question=" ")
 
-    def test_needs_at_least_one_piece_of_evidence(self) -> None:  # 16.1
+    def test_evidence_must_be_given(self) -> None:  # 16.1
+        fields = _question().model_dump()
+        del fields["evidence"]
+
         with pytest.raises(ValidationError, match="evidence"):
-            _question(evidence=[])
+            GoldQuestion.model_validate(fields)
+
+    def test_empty_evidence_is_a_question_the_corpus_does_not_answer(self) -> None:  # 16.1
+        assert not _question(evidence=[]).has_evidence
+        assert _question().has_evidence
 
     def test_rejects_unknown_fields(self) -> None:  # 16.1
         with pytest.raises(ValidationError, match="answer"):
@@ -78,3 +87,11 @@ class TestLoadGoldSet:
             for evidence in question.evidence
         }
         assert works == {work.id for work in load_manifest().works}
+
+
+def test_packaged_loop_set_has_questions_with_and_without_evidence() -> None:  # 23.9
+    gold = load_gold_set(LOOP_SET)
+
+    with_evidence = [question for question in gold.questions if question.has_evidence]
+    assert with_evidence
+    assert len(with_evidence) < len(gold.questions)

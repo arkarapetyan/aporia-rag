@@ -1,0 +1,242 @@
+# Gold questions for the corrective loop (query rewriting, then the web).
+#
+# Same format and judging rule as gold_retrieval.toml, but a separate set, so
+# the 40 retrieval questions stay comparable with earlier runs. These are the
+# questions where plain retrieval is expected to fail:
+#
+# - In the corpus, but asked in words far from the source's: modern words for
+#   Hobbes's 1651 English ("Covenants Extorted By Feare"), Aristotle's
+#   "Imperfect Self-Control" (Chase's word for akrasia), Descartes's
+#   "automata", Plato's "royal lie". The loop should find them by rewriting.
+# - Not in the corpus (`evidence = []`): a work or an author it does not
+#   contain. Every retrieved passage is rightly "not relevant", the loop must
+#   start, and the web is the only route. Some are near a topic the corpus
+#   does cover (justice, friendship, God), which tests the grader most.
+#
+# Judging rule (as in gold_retrieval.toml): a passage is evidence when, read on
+# its own, it states or argues the author's answer to the question as asked;
+# sharing the topic is not enough. A question that names an author accepts only
+# that author; one that does not may accept another author's answer. Debatable
+# calls are marked "borderline" with the reason.
+#
+# Revision history:
+# - 2026-10-20: 5 questions in the corpus (51 passages, found by keyword
+#   searches of all 7,705 chunks and by reading the chapters around each hit)
+#   and 4 outside it. Not yet pooled: the passages a model retrieves in words
+#   no search anticipated still count as misses until they are judged and added.
+
+# --- In the corpus ----------------------------------------------------------
+
+[[questions]]
+id = "promise-under-threat"
+question = "Do you have to keep a promise that someone forced out of you with threats?"
+# Hobbes: yes, a covenant made from fear binds (unless the law forbids the thing promised).
+[[questions.evidence]]
+document = "hobbes-leviathan/part-i-of-man-chapter-xiv-of-the-first-and-second-naturall-lawes-and-of-contracts"
+quote = "Covenants entred into by fear, in the condition of meer Nature, are obligatory"
+[[questions.evidence]]
+document = "hobbes-leviathan/part-i-of-man-chapter-xiv-of-the-first-and-second-naturall-lawes-and-of-contracts"
+quote = "if I be forced to redeem my selfe from a Theefe by promising him mony, I am bound to pay it"
+[[questions.evidence]]
+document = "hobbes-leviathan/part-ii-of-common-wealth-chapter-xx-of-dominion-paternall-and-despoticall"
+quote = "hold all such Covenants, as proceed from fear of death, or violence, voyd"
+[[questions.evidence]]
+document = "hobbes-leviathan/part-ii-of-common-wealth-chapter-xx-of-dominion-paternall-and-despoticall"
+quote = "Promises proceeding from fear of death, or violence, are no Covenants, nor obliging, when the thing promised is contrary to the Lawes"
+[[questions.evidence]]
+# borderline: the vanquished man's promise, made to save his life, binds once he is trusted
+document = "hobbes-leviathan/part-ii-of-common-wealth-chapter-xx-of-dominion-paternall-and-despoticall"
+quote = "upon promise not to run away, nor to do violence to his Master, is trusted by him"
+[[questions.evidence]]
+# borderline: the vanquished is bound by the covenant he made under threat, not by defeat
+document = "hobbes-leviathan/part-ii-of-common-wealth-chapter-xx-of-dominion-paternall-and-despoticall"
+quote = "It is not therefore the Victory, that giveth the right of Dominion over the Vanquished, but his own Covenant"
+# Cicero: yes to a lawful enemy (Regulus), no to pirates.
+[[questions.evidence]]
+document = "cicero-de-officiis/book-i"
+quote = "if under stress of circumstances individuals have made any promise to the enemy, they are bound to keep their word even then"
+[[questions.evidence]]
+document = "cicero-de-officiis/book-iii"
+quote = "suppose that one does not deliver the amount agreed upon with pirates as the price of one's life"
+[[questions.evidence]]
+document = "cicero-de-officiis/book-iii"
+quote = "Regulus had no right to confound by perjury the terms and covenants of war made with an enemy"
+[[questions.evidence]]
+# borderline: Regulus's example, praised by Cicero
+document = "cicero-de-officiis/book-iii"
+quote = "he thought his oath must be sacredly kept"
+[[questions.evidence]]
+document = "cicero-de-officiis/book-iii"
+quote = "As if force could be brought to bear upon a brave man!"
+# Schopenhauer: no, a promise extorted by violence does not bind.
+[[questions.evidence]]
+document = "schopenhauer-world-as-will-vol1/fourth-book-the-world-as-will"
+quote = "a promise is certainly not binding when it has been extorted by direct bodily violence"
+
+[[questions]]
+id = "hobbes-refusing-orders"
+question = "According to Hobbes, which orders from the ruler may a citizen refuse to obey?"
+[[questions.evidence]]
+# borderline: states the question and the principle the answer is derived from
+document = "hobbes-leviathan/part-ii-of-common-wealth-chapter-xxi-of-the-liberty-of-subjects"
+quote = "what are the things, which though commanded by the Soveraign, he may neverthelesse, without Injustice, refuse to do"
+[[questions.evidence]]
+# borderline: the criterion, the end for which sovereignty was instituted
+document = "hobbes-leviathan/part-ii-of-common-wealth-chapter-xxi-of-the-liberty-of-subjects"
+quote = "or else from the End of the Institution of Soveraignty"
+[[questions.evidence]]
+document = "hobbes-leviathan/part-ii-of-common-wealth-chapter-xxi-of-the-liberty-of-subjects"
+quote = "If the Soveraign command a man (though justly condemned,) to kill, wound, or mayme himselfe"
+[[questions.evidence]]
+document = "hobbes-leviathan/part-ii-of-common-wealth-chapter-xxi-of-the-liberty-of-subjects"
+quote = "he is not bound (without assurance of Pardon) to confesse it"
+[[questions.evidence]]
+document = "hobbes-leviathan/part-ii-of-common-wealth-chapter-xxi-of-the-liberty-of-subjects"
+quote = "When therefore our refusall to obey, frustrates the End for which the Soveraignty was ordained; then there is no Liberty to refuse"
+[[questions.evidence]]
+document = "hobbes-leviathan/part-ii-of-common-wealth-chapter-xxi-of-the-liberty-of-subjects"
+quote = "to avoyd battell, is not Injustice, but Cowardise"
+[[questions.evidence]]
+document = "hobbes-leviathan/part-ii-of-common-wealth-chapter-xxi-of-the-liberty-of-subjects"
+quote = "To resist the Sword of the Common-wealth, in defence of another man, guilty, or innocent, no man hath Liberty"
+[[questions.evidence]]
+document = "hobbes-leviathan/part-ii-of-common-wealth-chapter-xxi-of-the-liberty-of-subjects"
+quote = "And if it be onely to defend their persons, it is not unjust at all"
+[[questions.evidence]]
+document = "hobbes-leviathan/part-ii-of-common-wealth-chapter-xxi-of-the-liberty-of-subjects"
+quote = "The Obligation of Subjects to the Soveraign is understood to last as long, and no longer, than the power lasteth, by which he is able to protect them"
+
+[[questions]]
+id = "aristotle-knowing-better"
+question = "How does Aristotle explain people who know better but still give in to temptation?"
+[[questions.evidence]]
+# borderline: one of the common opinions Aristotle starts from, not yet his account
+document = "aristotle-nicomachean-ethics/book-vii-chapter-i"
+quote = "the man of Imperfect Self-Control does things at the instigation of his passions, knowing them to be wrong"
+[[questions.evidence]]
+document = "aristotle-nicomachean-ethics/book-vii-chapter-ii"
+quote = "his account of the matter is at variance with plain facts"
+[[questions.evidence]]
+document = "aristotle-nicomachean-ethics/book-vii-chapter-iii"
+quote = "the man of Imperfect Self-Control does not think that he ought to pursue it, but does pursue it all the same"
+[[questions.evidence]]
+document = "aristotle-nicomachean-ethics/book-vii-chapter-iii"
+quote = "who though possessed of Knowledge does not call it into operation"
+[[questions.evidence]]
+document = "aristotle-nicomachean-ethics/book-vii-chapter-iii"
+quote = "for a man to know in the one sense, and yet act wrongly, would be nothing strange"
+[[questions.evidence]]
+document = "aristotle-nicomachean-ethics/book-vii-chapter-iii"
+quote = "men under the actual operation of passion are in exactly similar conditions"
+[[questions.evidence]]
+document = "aristotle-nicomachean-ethics/book-vii-chapter-iii"
+quote = "their saying what embodies Knowledge is no proof of their actually then exercising it"
+[[questions.evidence]]
+document = "aristotle-nicomachean-ethics/book-vii-chapter-iii"
+quote = "All action may be analysed into a syllogism"
+[[questions.evidence]]
+document = "aristotle-nicomachean-ethics/book-vii-chapter-iii"
+quote = "the first universal bids him avoid this but the desire leads him on to taste"
+[[questions.evidence]]
+document = "aristotle-nicomachean-ethics/book-vii-chapter-iii"
+quote = "the man of Imperfect Self-Control recovers his Knowledge"
+[[questions.evidence]]
+document = "aristotle-nicomachean-ethics/book-vii-chapter-iii"
+quote = "his having does not amount to knowing but merely saying"
+[[questions.evidence]]
+document = "aristotle-nicomachean-ethics/book-vii-chapter-iv"
+quote = "not from moral choice but in spite of his moral choice and intellectual conviction"
+[[questions.evidence]]
+document = "aristotle-nicomachean-ethics/book-vii-chapter-vii"
+quote = "though they have made resolutions do not abide by them by reason of passion"
+[[questions.evidence]]
+# borderline: tells imperfect self-control from vice rather than explaining it
+document = "aristotle-nicomachean-ethics/book-vii-chapter-vii"
+quote = "follow bodily pleasures in excess and in defiance of Right Reason, without acting on any deliberate conviction"
+[[questions.evidence]]
+document = "aristotle-nicomachean-ethics/book-vii-chapter-ix"
+quote = "like the man who, having it, is overpowered by sleep or wine"
+[[questions.evidence]]
+document = "aristotle-nicomachean-ethics/book-iii-chapter-iv"
+quote = "the man who fails of self-control acts from Lust but not from Moral Choice"
+
+[[questions]]
+id = "descartes-machine-or-human"
+question = "How could you tell a lifelike robot from a real human being?"
+[[questions.evidence]]
+document = "descartes-discourse-on-method/part-v"
+quote = "there would still remain two most certain tests whereby to know that they were not therefore really men"
+[[questions.evidence]]
+document = "descartes-discourse-on-method/part-v"
+quote = "they could never use words or other signs arranged in such a manner as is competent to us in order to declare our thoughts to others"
+[[questions.evidence]]
+document = "descartes-discourse-on-method/part-v"
+quote = "they did not act from knowledge, but solely from the disposition of their organs"
+[[questions.evidence]]
+# borderline: applies the first test to men and animals rather than to machines
+document = "descartes-discourse-on-method/part-v"
+quote = "there are no men so dull and stupid, not even idiots, as to be incapable of joining together different words"
+
+[[questions]]
+id = "plato-misleading-the-public"
+question = "Are leaders ever justified in misleading the public for its own good?"
+[[questions.evidence]]
+# borderline: lies in words in general (to enemies, mad friends, in myths), not yet the rulers'
+document = "plato-republic/book-ii"
+quote = "the lie in words is in certain cases useful and not hateful"
+[[questions.evidence]]
+document = "plato-republic/book-iii"
+quote = "useful only as a medicine to men, then the use of such medicines should be restricted to physicians"
+[[questions.evidence]]
+document = "plato-republic/book-iii"
+quote = "if any one at all is to have the privilege of lying, the rulers of the State should be the persons"
+[[questions.evidence]]
+# borderline: only the rulers may lie; anyone else is punished
+document = "plato-republic/book-iii"
+quote = "he will punish him for introducing a practice which is equally subversive and destructive of ship or State"
+[[questions.evidence]]
+document = "plato-republic/book-iii"
+quote = "just one royal lie which may deceive the rulers, if that be possible, and at any rate the rest of the city"
+[[questions.evidence]]
+document = "plato-republic/book-iii"
+quote = "the audacious fiction, which I propose to communicate gradually, first to the rulers, then to the soldiers, and lastly to the people"
+[[questions.evidence]]
+document = "plato-republic/book-iii"
+quote = "the fostering of such a belief will make them care more for the city and for one another"
+[[questions.evidence]]
+document = "plato-republic/book-v"
+quote = "our rulers will find a considerable dose of falsehood and deceit necessary for the good of their subjects"
+[[questions.evidence]]
+# borderline: the marriage arrangements kept secret from the guardians
+document = "plato-republic/book-v"
+quote = "these goings on must be a secret which the rulers only know"
+[[questions.evidence]]
+document = "plato-republic/book-v"
+quote = "We shall have to invent some ingenious kind of lots which the less worthy may draw"
+
+# --- Outside the corpus -------------------------------------------------------
+# The corpus has no answer: every retrieved passage should be judged not relevant.
+
+[[questions]]
+id = "outside-veil-of-ignorance"
+# Rawls; near the corpus's many passages on justice (Plato, Hobbes, Mill).
+question = "How does the veil of ignorance lead to fair principles of justice?"
+evidence = []
+
+[[questions]]
+id = "outside-plato-lysis"
+# The Lysis is not in the corpus; the Republic's "friend" passages are near it.
+question = "What conclusion does Plato's Lysis reach about what friendship is?"
+evidence = []
+
+[[questions]]
+id = "outside-spinoza-god"
+# Spinoza is not in the corpus; Descartes and Hobbes discuss God.
+question = "How does Spinoza define God?"
+evidence = []
+
+[[questions]]
+id = "outside-language-games"
+# Wittgenstein; far from everything in the corpus.
+question = "What did Wittgenstein mean by a language game?"
+evidence = []

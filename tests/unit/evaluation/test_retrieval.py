@@ -1,4 +1,4 @@
-"""Tests for aporia_rag.evaluation.retrieval: relevance, metrics, the runner (test plan: 16.4-16.9).
+"""Tests for aporia_rag.evaluation.retrieval: relevance, metrics, the runner (plan: 16.4-16.10).
 
 The runner is tested with a scripted `Searcher`, so each test states exactly
 which chunks come back, in which order, for which question.
@@ -9,7 +9,6 @@ from pathlib import Path
 
 import pytest
 
-from aporia_rag.domain.models import Chunk, RetrievedChunk
 from aporia_rag.evaluation.gold import Evidence, GoldQuestion, GoldSet
 from aporia_rag.evaluation.retrieval import (
     QuestionResult,
@@ -19,6 +18,7 @@ from aporia_rag.evaluation.retrieval import (
     write_retrievals,
 )
 from support.builders import make_chunk
+from support.fakes import ScriptedSearcher
 
 GOOD_WILL = Evidence(document="kant/first-section", quote="except a good will")
 ANSWER = make_chunk("kant/first-section#0", "Nothing can be called good, except a good will.")
@@ -64,23 +64,6 @@ class TestMetrics:
         assert mean_reciprocal_rank(self.RANKS) == pytest.approx((1 + 1 / 3 + 0 + 1 / 6) / 4)
 
 
-class ScriptedSearcher:
-    """A `Searcher` that returns fixed chunks per question and records every call."""
-
-    def __init__(self, results: dict[str, list[Chunk]]) -> None:
-        self.results = results
-        self.calls: list[tuple[str, int]] = []
-
-    def search(self, question: str, *, k: int) -> list[RetrievedChunk]:
-        self.calls.append((question, k))
-        chunks = self.results.get(question, [])[:k]
-        return [RetrievedChunk(chunk=c, score=_score(rank)) for rank, c in enumerate(chunks)]
-
-
-def _score(rank: int) -> float:
-    return 0.9 - rank / 10  # best first, as from a real store
-
-
 def _question(question_id: str, evidence: Evidence = GOOD_WILL) -> GoldQuestion:
     return GoldQuestion(id=question_id, question=f"Question {question_id}?", evidence=[evidence])
 
@@ -124,6 +107,22 @@ def test_the_report_keeps_what_was_retrieved() -> None:  # 16.8
     assert [retrieved.chunk for retrieved in found.retrieved] == [SAME_SECTION, ANSWER]
     assert [retrieved.score for retrieved in found.retrieved] == [0.9, 0.8]
     assert missed.retrieved == ()
+
+
+def test_a_question_without_evidence_is_searched_but_not_scored() -> None:  # 16.10
+    outside = GoldQuestion(id="outside", question="Question outside?", evidence=[])
+    gold = GoldSet(questions=[_question("found"), outside])
+    searcher = ScriptedSearcher({"Question found?": [ANSWER], "Question outside?": [ELSEWHERE]})
+
+    report = evaluate_retrieval(searcher, gold)
+
+    found, outside_result = report.results
+    assert found.has_evidence
+    assert not outside_result.has_evidence
+    assert [retrieved.chunk for retrieved in outside_result.retrieved] == [ELSEWHERE]
+    # a miss would be (1, None) and halve every hit rate
+    assert report.passage_ranks == (1,)
+    assert report.section_ranks == (1,)
 
 
 def test_retrievals_are_written_one_json_line_per_chunk(tmp_path: Path) -> None:  # 16.9

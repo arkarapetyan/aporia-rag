@@ -5,6 +5,7 @@
     aporia-rag search QUESTION       show the passages retrieval finds for a question
     aporia-rag ask QUESTION          answer from the relevant passages, citing them
     aporia-rag evaluate [--model M]  measure retrieval on the gold questions [--dump PATH]
+                                     [--grade: and the relevance grader]
 
 Each command parses its arguments, asks the `Container` for the components
 it needs, and prints. Expected failures (Ollama not running, a model not
@@ -27,6 +28,13 @@ from aporia_rag.config import Settings, load_settings
 from aporia_rag.domain.errors import AporiaError
 from aporia_rag.domain.models import RetrievedChunk
 from aporia_rag.evaluation.gold import GoldSet, load_gold_set
+from aporia_rag.evaluation.grading import (
+    GradingReport,
+    agreement,
+    evaluate_grading,
+    loop_starts,
+    seconds_per_question,
+)
 from aporia_rag.evaluation.retrieval import (
     DEPTH,
     RetrievalReport,
@@ -171,6 +179,12 @@ def _parser() -> argparse.ArgumentParser:
         default=None,
         metavar="PATH",
         help="also write every retrieved chunk, with its verdicts, to PATH (JSON Lines)",
+    )
+    evaluate.add_argument(
+        "--grade",
+        action="store_true",
+        help="also grade every retrieved chunk with the chat model and compare with the gold set "
+        "(one model call per chunk)",
     )
     evaluate.set_defaults(run=_evaluate)
     return parser
@@ -424,6 +438,9 @@ def _label(passage: RetrievedChunk) -> str:
 
 _METRICS = ("Hit@1", "Hit@5", f"Hit@{DEPTH}", "MRR", "Hit@5", "MRR")
 _COLUMN = 7  # width of one metric column
+_NO_EVIDENCE = "no evidence"
+# The grader is measured at the default `k` of `ask` and at the full depth of the evaluation.
+_GRADING_DEPTHS = (5, DEPTH)
 
 
 def _evaluate(args: argparse.Namespace, container: Container) -> int:
@@ -431,9 +448,11 @@ def _evaluate(args: argparse.Namespace, container: Container) -> int:
     models: list[str] = args.models or [container.settings.embedding.model]
     reports = {model: _evaluate_model(model, gold, container) for model in models}
     count = len(gold.questions)
+    scored = sum(1 for question in gold.questions if question.has_evidence)
+    unscored = f" ({count - scored} without evidence, not scored)" if scored < count else ""
     print(
-        f"{count} gold questions, top {DEPTH} chunks each "
-        f"(one question is {100 / count:.1f} points)\n"
+        f"{count} gold questions{unscored}, top {DEPTH} chunks each "
+        f"(one question is {100 / scored:.1f} points)\n"
     )
     _print_metrics(reports)
     print(
@@ -441,6 +460,11 @@ def _evaluate(args: argparse.Namespace, container: Container) -> int:
         "section hit: it only comes from the evidence section\n"
     )
     _print_ranks(gold, reports)
+    if args.grade:
+        grader = container.relevance_grader
+        for model, report in reports.items():
+            grading = evaluate_grading(report, gold, grader)
+            _print_grading(model, container.settings.chat.model, grading)
     if args.dump is not None:
         write_retrievals(args.dump, reports, gold)
         print(f"\nretrieved chunks written to {args.dump}")
@@ -479,7 +503,7 @@ def _print_metrics(reports: dict[str, RetrievalReport]) -> None:
 def _print_ranks(gold: GoldSet, reports: dict[str, RetrievalReport]) -> None:
     print(f"rank of the first passage hit (section hit); - means not in the top {DEPTH}")
     width = max(len("question"), *(len(question.id) for question in gold.questions)) + 2
-    columns = [max(len(model), len("10 (10)")) + 2 for model in reports]
+    columns = [max(len(model), len(_NO_EVIDENCE)) + 2 for model in reports]
     header = f"{'question':{width}}" + "".join(
         f"{model:{column}}" for model, column in zip(reports, columns, strict=True)
     )
@@ -488,6 +512,66 @@ def _print_ranks(gold: GoldSet, reports: dict[str, RetrievalReport]) -> None:
         cells = []
         for report, column in zip(reports.values(), columns, strict=True):
             result = report.results[index]
-            cell = f"{result.passage_rank or '-'} ({result.section_rank or '-'})"
+            if result.has_evidence:
+                cell = f"{result.passage_rank or '-'} ({result.section_rank or '-'})"
+            else:
+                cell = _NO_EVIDENCE
             cells.append(f"{cell:{column}}")
         print(f"{question.id:{width}}{''.join(cells)}".rstrip())
+
+
+def _print_grading(model: str, chat_model: str, report: GradingReport) -> None:
+    """How the grader's verdicts on one model's retrievals meet the gold set."""
+    print(f"\nrelevance grader {chat_model} on the chunks {model} retrieved")
+    headers = ("chunks", "evidence", "kept", "kept evidence", "precision", "recall", "s/question")
+    print(f"{'':7}" + "".join(f"{header:>{len(header) + 2}}" for header in headers))
+    for k in _GRADING_DEPTHS:
+        counts = agreement(report, k)
+        values = (
+            counts.total,
+            counts.evidence,
+            counts.kept,
+            counts.kept_evidence,
+            _ratio(counts.precision),
+            _ratio(counts.recall),
+            f"{seconds_per_question(report, k):.1f}",
+        )
+        cells = "".join(
+            f"{value:>{len(header) + 2}}" for header, value in zip(headers, values, strict=True)
+        )
+        print(f"{f'top {k}':7}{cells}")
+    print(
+        "precision: the share of the kept chunks that are evidence; "
+        "recall: the share of the evidence that is kept"
+    )
+    for k in _GRADING_DEPTHS:
+        starts = loop_starts(report, k)
+        print(f"\nno relevant chunk in the top {k}, so the corrective loop would start:")
+        print(f"  needed (gold set and grader): {_ids(starts.needed)}")
+        print(f"  needless (grader only): {_ids(starts.needless)}")
+        print(f"  missed (gold set only): {_ids(starts.missed)}")
+    _print_disagreements(report)
+
+
+def _print_disagreements(report: GradingReport) -> None:
+    rows = [
+        (question.question_id, verdict)
+        for question in report.questions
+        for verdict in question.verdicts
+        if verdict.evidence != verdict.relevant
+    ]
+    print(f"\ndisagreements with the gold set ({len(rows)}): question, rank, chunk")
+    id_width = max((len(question_id) for question_id, _ in rows), default=0)
+    chunk_width = max((len(verdict.chunk_id) for _, verdict in rows), default=0)
+    for question_id, verdict in rows:
+        label = "kept, not evidence" if verdict.relevant else "evidence, left out"
+        chunk = f"{verdict.chunk_id:{chunk_width}}"
+        print(f"{question_id:{id_width}}  {verdict.rank:>2}  {chunk}  {label}")
+
+
+def _ratio(value: float | None) -> str:
+    return "-" if value is None else f"{value:.2f}"
+
+
+def _ids(question_ids: Sequence[str]) -> str:
+    return ", ".join(question_ids) or "-"

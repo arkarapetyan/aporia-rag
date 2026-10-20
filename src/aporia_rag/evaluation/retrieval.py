@@ -10,6 +10,9 @@ metric is then computed from those ranks:
 - MRR: the mean of 1/rank over all questions, a miss counting 0. It
   rewards ranking the answer first over merely including it.
 
+A question without evidence (the corpus does not answer it) is searched like
+any other, but it has no rank to find, so the metrics leave it out.
+
 The report also keeps what was retrieved, and `write_retrievals` saves it
 for reading: a retrieved chunk that answers the question but is not in the
 gold set counts as a miss, and reading the misses is how such passages are
@@ -41,6 +44,7 @@ class Searcher(Protocol):
 @dataclass(frozen=True, slots=True)
 class QuestionResult:
     question_id: str
+    has_evidence: bool
     passage_rank: Rank
     section_rank: Rank
     retrieved: tuple[RetrievedChunk, ...]
@@ -52,11 +56,17 @@ class RetrievalReport:
 
     @property
     def passage_ranks(self) -> tuple[Rank, ...]:
-        return tuple(result.passage_rank for result in self.results)
+        """The rank of each scored question's first passage hit."""
+        return tuple(result.passage_rank for result in self._scored)
 
     @property
     def section_ranks(self) -> tuple[Rank, ...]:
-        return tuple(result.section_rank for result in self.results)
+        """The rank of each scored question's first section hit."""
+        return tuple(result.section_rank for result in self._scored)
+
+    @property
+    def _scored(self) -> list[QuestionResult]:
+        return [result for result in self.results if result.has_evidence]
 
 
 def evaluate_retrieval(searcher: Searcher, gold: GoldSet) -> RetrievalReport:
@@ -68,6 +78,7 @@ def evaluate_retrieval(searcher: Searcher, gold: GoldSet) -> RetrievalReport:
         results.append(
             QuestionResult(
                 question_id=question.id,
+                has_evidence=question.has_evidence,
                 passage_rank=_first_rank(chunks, question.is_passage_hit),
                 section_rank=_first_rank(chunks, question.is_section_hit),
                 retrieved=retrieved,

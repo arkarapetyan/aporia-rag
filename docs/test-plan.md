@@ -312,7 +312,7 @@ Each work's start marker, end marker and section heading patterns live in its `l
 | I.6 | No document contains Gutenberg boilerplate, a footnote paragraph or an index |
 | I.7 | Document ids are unique across the whole corpus |
 | I.8 | No `#margin note#` survives anywhere in *De Officiis* (Miller's summaries are not Cicero's words) |
-| I.9 | Every piece of evidence in the packaged gold set names an existing document, and its quote occurs in that document and inside at least one chunk at the configured chunk size and overlap |
+| I.9 | Every piece of evidence in the packaged gold sets (`gold_retrieval.toml`, `gold_loop.toml`) names an existing document, and its quote occurs in that document and inside at least one chunk at the configured chunk size and overlap |
 
 Known residue, accepted as low-impact: `***` lacuna marks, and about 30 unbalanced italics underscores (`_any_thing`) across 6.4 million characters.
 
@@ -518,7 +518,7 @@ the union of all systems' top results is judged).
 
 | # | Test |
 |---|---|
-| 16.1 | `Evidence` needs a non-blank document id and quote; `GoldQuestion` needs a slug id, a non-blank question and at least one piece of evidence; unknown fields are rejected |
+| 16.1 | `Evidence` needs a non-blank document id and quote; `GoldQuestion` needs a slug id, a non-blank question and its evidence, which must be given but may be empty (a question the corpus does not answer, component 23); unknown fields are rejected |
 | 16.2 | `GoldSet` needs at least one question and rejects duplicate question ids |
 | 16.3 | `load_gold_set` parses a TOML file; the packaged gold set loads and has evidence in every work of the corpus manifest |
 | 16.4 | A chunk is a passage hit when it comes from the evidence's document and contains the quote, ignoring differences in whitespace; the same quote in another document is not a hit; a section hit only needs the document |
@@ -527,6 +527,7 @@ the union of all systems' top results is judged).
 | 16.7 | `evaluate_retrieval` asks the searcher once per question for the top 10 and reports, in gold-set order, the rank of the first passage hit and of the first section hit (`None` for a miss) |
 | 16.8 | The report keeps every question's retrieved chunks, in rank order, so what was judged can be inspected |
 | 16.9 | `write_retrievals` writes one JSON line per model, question and retrieved chunk: the question, rank, score, chunk id, citation, chunk text, and whether the chunk is a passage hit and a section hit |
+| 16.10 | A question without evidence is searched and its retrieved chunks are kept like any other, but it has no passage or section rank: the metrics leave it out instead of counting a miss |
 
 ## Component 17: `evaluate` command (`aporia_rag.cli`)
 
@@ -537,6 +538,7 @@ the union of all systems' top results is judged).
 | 17.3 | A model whose index is empty is a one-line error naming the model and the command that indexes it |
 | 17.4 | `evaluate` releases the connections of every model it evaluated |
 | 17.5 | `evaluate --dump PATH` also writes every model's retrieved chunks to PATH (16.9), creating its folder, and says where; the printed report is unchanged |
+| 17.6 | `evaluate` says how many questions have no evidence and are not scored, and shows `no evidence` instead of their ranks |
 
 ---
 
@@ -620,6 +622,7 @@ keeps every prompt short and every verdict independent of the other passages.
 |---|---|
 | 21.1 | Each passage is graded in its own call: the grading system prompt, then one user message with the passage's citation, its exact text and the question last, asking for a `RelevanceVerdict` |
 | 21.2 | `relevant` returns the passages judged relevant, in their original order |
+| 21.3 | `is_relevant` grades one passage in one call and returns the model's verdict (component 23 measures the grader through it) |
 
 ## Component 22: Authors named in the question (`aporia_rag.retrieval.names`)
 
@@ -635,6 +638,68 @@ code over the manifest's author names: the surname, as a whole word, in any case
 | 22.1 | A surname names its author in any case and in the possessive (`kant`, `Kant's`, `Hobbes'`), and so does the full name |
 | 22.2 | Only whole words count: `Kantian` and `Platonic` name nobody, nor does a question without names |
 | 22.3 | Every author named is returned, in the order the authors are given |
+
+## Measuring the grader: component 23
+
+The corrective loop (query rewriting, then the web) will start from the grader's verdicts; in the
+simplest rule, when the grader keeps no retrieved passage. The grader is the switch of the loop,
+and it can be wrong in two ways with different costs:
+
+- **A false "not relevant"** drops a passage that answers. If it drops all of them, the loop
+  rewrites the query or searches the web for nothing: time lost, and a weaker web answer can
+  replace a good one from the corpus.
+- **A false "relevant"** keeps a passage that does not answer. The loop does not start when it
+  should, and the generator writes a paragraph about a passage that is beside the point (the
+  failure the grader was built against).
+
+The first live run (15 of 15 verdicts right) is too small to show either rate. The gold set already
+holds the labels: the 2026-10-16 pooling judged every chunk that the three bake-off models ranked
+in a top 10, so for `qwen3-embedding:0.6b` on its current index every retrieved chunk is either
+evidence or was judged not to answer. `evaluate --grade` therefore retrieves the top 10 of every
+gold question as usual, asks the grader about each chunk, and compares its verdicts with the gold
+set, at the top 5 (the default of `ask`) and the top 10:
+
+- **Agreement:** precision (the share of the kept passages that are evidence) and recall (the share
+  of the evidence that is kept).
+- **Loop starts:** the questions with no relevant passage in the top k, by the gold set and by the
+  grader. Those of the grader only are needless loops; those of the gold set only are missed loops.
+- **Time:** the mean grading time per question, which decides the parked options (one batched call;
+  2-3 passages per author in a survey).
+- **Every disagreement,** with its question, rank and chunk id, to be read: the gold set's rule
+  ("the passage states or argues the author's answer to the question as asked") is stricter than the
+  grader's prompt ("states, explains or argues something the question asks about, even in part"), so
+  some disagreements are the grader being lenient by design, some are grader errors, and some may be
+  missing evidence.
+
+Limits: another embedding model, or a re-built index, retrieves chunks the pool never judged, so
+the labels are only complete for the configuration that was pooled. Retrieval here is unrestricted,
+while `ask` searches only the author a question names; for the 15 such gold questions this changes
+1 of 150 top-10 chunks.
+
+**Loop questions** (`evaluation/gold_loop.toml`, a separate file so the 40 retrieval questions
+stay comparable with earlier runs): questions where plain retrieval is expected to fail. Some use
+modern words for an old text (Hobbes's "Covenants extorted by feare", Aristotle's "incontinence"),
+and some ask what the corpus does not contain (a work or an author outside it). The latter have
+`evidence = []`: every passage retrieved for them is a correct "not relevant", the loop must start,
+and later the web fallback is their only route. `evaluate --gold <file>` gives their retrieval
+baseline and `--grade` shows whether the grader starts the loop for them.
+
+The evaluation depends on a `Judge` protocol (`is_relevant(question, passage)`) declared next to
+it, which `RelevanceGrader` satisfies structurally, as `Retriever` satisfies `Searcher`.
+
+## Component 23: Grader evaluation (`aporia_rag.evaluation.grading`, `aporia_rag.cli`)
+
+| # | Test |
+|---|---|
+| 23.1 | `evaluate_grading` asks the judge once about every retrieved chunk of every question, in gold-set and rank order, and records the question, rank, chunk id, whether the chunk is evidence (a passage hit) and the verdict |
+| 23.2 | Each verdict records how long the judge took (a scripted clock makes it exact) |
+| 23.3 | `agreement(report, k)` counts, over the top k of every question, the chunks kept and evidence, kept only, evidence only, and neither; precision is kept evidence over kept, recall is kept evidence over evidence; ranks after k do not count |
+| 23.4 | Precision with nothing kept and recall with no evidence are `None`, not a division by zero |
+| 23.5 | `loop_starts(report, k)` lists, in gold-set order, the questions with no relevant chunk in their top k by both the gold set and the grader, by the grader only (needless loops) and by the gold set only (missed loops) |
+| 23.6 | `seconds_per_question(report, k)` is the mean, over questions, of the time spent on their top k verdicts |
+| 23.7 | `evaluate --grade` grades every retrieved chunk with the chat model (one structured request each) and prints, after the retrieval report: the agreement and grading time at the top 5 and the top 10, the questions where the loop would start, and every disagreement with its question, rank and chunk id |
+| 23.8 | Without `--grade`, `evaluate` sends no request to the chat model |
+| 23.9 | The packaged loop question set loads, and has questions with and without evidence |
 
 ## Architecture rules (`tests/unit/test_architecture.py`, run in the default suite)
 

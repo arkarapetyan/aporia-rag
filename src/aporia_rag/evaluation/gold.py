@@ -5,8 +5,14 @@ passage that answers the question. Matching the quote, rather than a chunk
 id, keeps the gold set valid when chunking changes: whichever chunk holds
 the quote is the right one.
 
-The set itself lives in ``gold_retrieval.toml`` next to this module, like
-the corpus manifest, and is validated every time it is loaded.
+A question may have no evidence at all (``evidence = []``): the corpus does
+not answer it, so every retrieved passage is rightly "not relevant" and the
+corrective loop must look elsewhere. Retrieval metrics leave such questions
+out; the grader evaluation uses them.
+
+The sets live next to this module, like the corpus manifest:
+``gold_retrieval.toml`` (the default) and ``gold_loop.toml`` (questions for
+the corrective loop). They are validated every time they are loaded.
 """
 
 import tomllib
@@ -48,7 +54,14 @@ class GoldQuestion(_Gold):
 
     id: str = Field(pattern=_SLUG)
     question: str = Field(pattern=_NOT_BLANK)
-    evidence: list[Evidence] = Field(min_length=1)
+    evidence: list[Evidence] = Field(
+        description="Every passage that answers the question; empty if the corpus does not."
+    )
+
+    @property
+    def has_evidence(self) -> bool:
+        """The corpus answers the question."""
+        return bool(self.evidence)
 
     def is_section_hit(self, chunk: Chunk) -> bool:
         return any(evidence.is_section_hit(chunk) for evidence in self.evidence)

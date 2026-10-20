@@ -1,4 +1,4 @@
-"""Tests for aporia_rag.cli (test plan: Components 6, 15, 17 and 20).
+"""Tests for aporia_rag.cli (test plan: Components 6, 15, 17, 20 and 23).
 
 The CLI is driven exactly as from a shell, through `main(argv)`. The seams
 are the injected httpx transport, which serves the mirror, the embedding
@@ -14,7 +14,7 @@ import httpx
 import pytest
 
 from aporia_rag.cli import main
-from aporia_rag.config import Settings, StorageSettings
+from aporia_rag.config import ChatSettings, Settings, StorageSettings
 from aporia_rag.generation.generator import SURVEY_PROMPT
 from support.fakes import RELEVANT, FakeOllamaServer, refusing_transport
 
@@ -629,6 +629,89 @@ def test_evaluate_dump_writes_every_retrieved_chunk(
     assert {record["model"] for record in records} == {QWEN}
     assert {record["question_id"] for record in records} == {"good-will", "state-of-nature"}
     assert any(record["passage_hit"] for record in records)
+
+
+OUTSIDE_THE_CORPUS = """
+[[questions]]
+id = "outside-the-corpus"
+question = "What is a language game?"
+evidence = []
+"""
+
+
+def test_evaluate_does_not_score_questions_without_evidence(
+    index_manifest: Path,
+    settings: Settings,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:  # 17.6
+    server = FakeOllamaServer()
+    _index(index_manifest, settings, server)
+    capsys.readouterr()
+    gold = tmp_path / "gold.toml"
+    gold.write_text(GOLD + OUTSIDE_THE_CORPUS, encoding="utf-8")
+
+    exit_code = _evaluate(gold, settings, server)
+
+    assert exit_code == 0
+    output = capsys.readouterr().out
+    assert "3 gold questions (1 without evidence, not scored)" in output
+    assert "(one question is 50.0 points)" in output
+    assert re.search(rf"^{re.escape(QWEN)} +1\.00 ", output, re.MULTILINE), output
+    assert re.search(r"^outside-the-corpus +no evidence$", output, re.MULTILINE), output
+
+
+def _good_will_only(prompt: str) -> str:
+    """Keep the Kant passages for the good-will question, and nothing for any other question."""
+    question = prompt.rsplit("Question:", 1)[-1]
+    keep = "good without qualification" in question and "Thomas Hobbes" not in prompt
+    return f'{{"relevant": {str(keep).lower()}}}'
+
+
+def test_evaluate_grade_compares_the_grader_with_the_gold_set(
+    index_manifest: Path, gold: Path, settings: Settings, capsys: pytest.CaptureFixture[str]
+) -> None:  # 23.7
+    server = FakeOllamaServer(structured_reply=_good_will_only)
+    _index(index_manifest, settings, server)
+    capsys.readouterr()
+    _evaluate(gold, settings, server)
+    report = capsys.readouterr().out
+
+    exit_code = main(
+        ["evaluate", "--gold", str(gold), "--grade"], transport=server.transport, settings=settings
+    )
+
+    assert exit_code == 0
+    assert len(server.structured_requests) == 6  # 2 questions x the 3 chunks of the test corpus
+    assert not server.chat_requests
+    output = capsys.readouterr().out
+    assert output.startswith(report)  # the retrieval report first, unchanged
+    grading = output.removeprefix(report)
+    assert f"relevance grader {ChatSettings().model} on the chunks {QWEN} retrieved" in grading
+    # good-will: both Kant chunks kept, one of them evidence; state-of-nature: nothing kept
+    for k in (5, 10):
+        row = rf"^top {k} +6 +2 +2 +1 +0\.50 +0\.50 +\d+\.\d$"
+        assert re.search(row, grading, re.MULTILINE), grading
+    assert re.search(r"^ +needless \(grader only\): state-of-nature$", grading, re.MULTILINE)
+    assert re.search(r"^ +missed \(gold set only\): -$", grading, re.MULTILINE)
+    disagreements = [
+        r"^good-will +\d +kant-groundwork/second-section#0 +kept, not evidence$",
+        r"^state-of-nature +\d +hobbes-leviathan/chapter-xiii#0 +evidence, left out$",
+    ]
+    for disagreement in disagreements:
+        assert re.search(disagreement, grading, re.MULTILINE), grading
+
+
+def test_evaluate_without_grade_never_asks_the_chat_model(
+    index_manifest: Path, gold: Path, settings: Settings
+) -> None:  # 23.8
+    server = FakeOllamaServer()
+    _index(index_manifest, settings, server)
+
+    _evaluate(gold, settings, server)
+
+    assert not server.structured_requests
+    assert not server.chat_requests
 
 
 # --------------------------------------------------------------------------

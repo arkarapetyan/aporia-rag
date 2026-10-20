@@ -1,10 +1,10 @@
 """In-memory test doubles for the application's ports.
 
 They implement the same interfaces as the real adapters (`Embedder`,
-`VectorStore`, `ChatModel`, Ollama's HTTP API), so code under test cannot
-tell them apart. `InMemoryVectorStore` is held to exactly the same behaviour as
-`ChromaVectorStore` by the shared contract suite in
-tests/unit/adapters/test_vector_store_contract.py.
+`VectorStore`, `ChatModel`, Ollama's HTTP API) and the evaluation's
+`Searcher`, so code under test cannot tell them apart. `InMemoryVectorStore`
+is held to exactly the same behaviour as `ChromaVectorStore` by the shared
+contract suite in tests/unit/adapters/test_vector_store_contract.py.
 """
 
 import hashlib
@@ -18,7 +18,7 @@ import httpx
 from pydantic import BaseModel
 
 from aporia_rag.config import ChatSettings, EmbeddingSettings
-from aporia_rag.domain.models import ChatMessage, EmbeddingSpace, Passage, RetrievedChunk
+from aporia_rag.domain.models import ChatMessage, Chunk, EmbeddingSpace, Passage, RetrievedChunk
 from aporia_rag.domain.ports import (
     IndexRecord,
     MetadataFilter,
@@ -140,6 +140,19 @@ def cosine(a: Vector, b: Vector) -> float:
 def _matches(record: IndexRecord, filters: MetadataFilter | None) -> bool:
     metadata = record.chunk.metadata.model_dump()
     return all(metadata.get(field) == value for field, value in (filters or {}).items())
+
+
+class ScriptedSearcher:
+    """A `Searcher` that returns fixed chunks per question, best first, and records every call."""
+
+    def __init__(self, results: dict[str, list[Chunk]]) -> None:
+        self.results = results
+        self.calls: list[tuple[str, int]] = []
+
+    def search(self, question: str, *, k: int) -> list[RetrievedChunk]:
+        self.calls.append((question, k))
+        chunks = self.results.get(question, [])[:k]
+        return [RetrievedChunk(chunk=c, score=0.9 - rank / 10) for rank, c in enumerate(chunks)]
 
 
 RELEVANT: Final = '{"relevant": true}'

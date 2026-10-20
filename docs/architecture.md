@@ -10,7 +10,7 @@ src/aporia_rag/
 ├── retrieval/     Question -> nearest chunks. Depends on domain ports.
 ├── adapters/      Ollama, Chroma (later ddgs, Google...) implementations of the ports.
 ├── graph/         (planned) LangGraph state, nodes and wiring. Depends on domain ports only.
-├── evaluation/    Gold questions and metrics: retrieval now (Hit@k, MRR), answers later.
+├── evaluation/    Gold questions and metrics: retrieval (Hit@k, MRR) and the grader now, answers later.
 ├── config.py      Settings from the environment / .env.
 ├── bootstrap.py   Composition root: provider registries and the Container that builds everything.
 └── cli.py         `aporia-rag fetch | index | search`.
@@ -364,6 +364,30 @@ points, so smaller differences between models are noise.
 **The evaluation depends on a `Searcher` protocol** (`search(question, *, k)`) declared next to
 it. `Retriever` satisfies it structurally, so `evaluation` imports neither `retrieval` nor a
 provider, and the corrective graph will be measured through the same interface.
+
+**Measure the grader before building on it.** The corrective loop will start from the grader's
+verdicts, so the grader's two errors decide what the loop does: a false "not relevant" on every
+answering passage starts a needless rewrite or web search, and a false "relevant" keeps the loop
+from starting and hands the generator a passage beside the point. Its first live run (15 of 15) was
+too small to show either rate, but the pooled gold set already holds the labels: every chunk that
+`qwen3-embedding:0.6b` ranks in a top 10 was judged. `evaluate --grade` grades every retrieved
+chunk (`evaluation.grading`, through a `Judge` protocol that `RelevanceGrader.is_relevant`
+satisfies) and reports, at the top 5 and the top 10: precision and recall against the gold set,
+the questions where the loop would start (rightly, needlessly, or not when it should), the grading
+time per question, and every disagreement, to be read rather than only counted. The gold set's rule
+("states or argues the author's answer to the question as asked") is stricter than the grader's
+prompt ("even in part"), so some disagreements are the grader's leniency by design. Measured
+offline before building it: with the `ask` default of 5 passages, 47% of the retrieved passages
+are not evidence, and only 3 of the 40 gold questions have none in their top 5. A perfect grader
+would start the loop for those 3 only: the retrieval set barely exercises the loop.
+
+**Loop questions.** `evaluation/gold_loop.toml` is a separate set for the loop, so the 40 retrieval
+questions stay comparable with earlier runs. Five questions are answered in the corpus but asked in
+words far from the source's (Hobbes's "Covenants Extorted By Feare", Chase's "Imperfect
+Self-Control" for akrasia, Descartes's "automata", Plato's "royal lie"); four ask what the corpus
+does not contain, with `evidence = []`. Retrieval metrics leave the latter out (they have no rank to
+find), and the grader evaluation uses them: every retrieved passage is rightly "not relevant", so the
+loop must start, and later the web fallback is their only route.
 
 ## Quality gate
 

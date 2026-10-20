@@ -41,9 +41,10 @@ class RelevanceGrader:
 
     def relevant(self, question: str, passages: Sequence[RetrievedChunk]) -> list[RetrievedChunk]:
         """The passages judged relevant to `question`, in their original order."""
-        return [passage for passage in passages if self._is_relevant(question, passage)]
+        return [passage for passage in passages if self.is_relevant(question, passage)]
 
-    def _is_relevant(self, question: str, passage: RetrievedChunk) -> bool:
+    def is_relevant(self, question: str, passage: RetrievedChunk) -> bool:
+        """The model's verdict on one passage, from one call."""
         chunk = passage.chunk
         messages = [
             ChatMessage(role="system", content=SYSTEM_PROMPT),

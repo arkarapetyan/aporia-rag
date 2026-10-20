@@ -1,4 +1,4 @@
-"""The packaged gold set against the real corpus (test plan: I.9).
+"""The packaged gold sets against the real corpus (test plan: I.9).
 
 Opt-in (`make test-integration`), and skipped unless the whole corpus is in
 data/raw. A gold question whose quote is in no chunk could never be a hit,
@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 
+from aporia_rag import evaluation
 from aporia_rag.config import ChunkingSettings
 from aporia_rag.domain.models import Chunk
 from aporia_rag.evaluation.gold import GoldQuestion, load_gold_set
@@ -21,7 +22,10 @@ from aporia_rag.ingestion.loader import iter_documents
 pytestmark = pytest.mark.integration
 
 RAW_DIR = Path(__file__).resolve().parents[2] / "data" / "raw"
-GOLD = load_gold_set()
+QUESTIONS = [
+    *load_gold_set().questions,
+    *load_gold_set(Path(evaluation.__file__).parent / "gold_loop.toml").questions,
+]
 
 
 @pytest.fixture(scope="module")
@@ -34,7 +38,7 @@ def chunks_by_document() -> dict[str, list[Chunk]]:
     return {document.id: chunker.chunk(document) for document in iter_documents(works, RAW_DIR)}
 
 
-@pytest.mark.parametrize("question", GOLD.questions, ids=lambda question: question.id)
+@pytest.mark.parametrize("question", QUESTIONS, ids=lambda question: question.id)
 def test_every_quote_is_inside_a_chunk_of_its_document(
     question: GoldQuestion, chunks_by_document: dict[str, list[Chunk]]
 ) -> None:  # I.9

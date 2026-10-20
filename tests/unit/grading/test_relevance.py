@@ -59,3 +59,14 @@ def test_relevant_keeps_the_passages_judged_relevant_in_order() -> None:  # 21.2
 
     assert RelevanceGrader(hobbes_only).relevant(QUESTION, [KANT, HOBBES]) == [HOBBES]
     assert RelevanceGrader(everything).relevant(QUESTION, [HOBBES, KANT]) == [HOBBES, KANT]
+
+
+def test_is_relevant_grades_one_passage_in_one_call() -> None:  # 21.3
+    hobbes_only = ScriptedChatModel(
+        structured_reply=lambda prompt: f'{{"relevant": {str("Hobbes" in prompt).lower()}}}'
+    )
+    grader = RelevanceGrader(hobbes_only)
+
+    assert grader.is_relevant(QUESTION, HOBBES) is True
+    assert grader.is_relevant(QUESTION, KANT) is False
+    assert len(hobbes_only.conversations) == 2

@@ -89,6 +89,9 @@ uv run aporia-rag ask "Is anything good without qualification?"
 uv run aporia-rag ask "What is friendship?" --all-authors
 uv run aporia-rag ask "How do Kant and Mill differ on lying?"
 uv run aporia-rag evaluate        # Hit@k and MRR of retrieval on 40 gold questions
+uv run aporia-rag evaluate --grade  # ...and the relevance grader against the gold set
+uv run aporia-rag evaluate --gold src/aporia_rag/evaluation/gold_loop.toml --grade
+                                  # the questions the corrective loop is for
 make check                        # lint, strict type-check, tests with coverage: what CI runs
 make help                         # list all targets
 ```
@@ -148,6 +151,7 @@ write the component, then run the full quality gate. Test lists live in
 - [x] Baseline RAG (retrieve then generate), end to end: `aporia-rag ask`
 - [x] Relevance grader, pointers to other authors, survey of all authors (`ask --all-authors`),
   authors named in the question
+- [x] Grader evaluation against the gold set (`evaluate --grade`) and loop questions
 - [ ] Query rewriter
 - [ ] Web search fallback
 - [ ] Groundedness and answer-relevance graders
