@@ -191,7 +191,11 @@ translate provider exceptions into these, so the CLI turns any of them, plus the
 rest of the suite runs on, so they must behave like the real thing: the vector-store contract
 suite runs every test against both `InMemoryVectorStore` and real Chroma. `HashingEmbedder`
 (feature hashing: texts sharing words get similar vectors) makes retrieval tests meaningful
-without a model.
+without a model. A fake that is more lenient than the real thing hides bugs: the rewriter's first
+reply schemas carried a regex `pattern` (not blank), every fake test passed, and Ollama refused
+every request ("Pattern must start with '^' and end with '$'"). `FakeOllamaServer` now refuses such
+a schema the way Ollama does, and a reply's non-blank check runs when the reply is read, not in the
+schema sent to the model.
 
 ## Indexing
 

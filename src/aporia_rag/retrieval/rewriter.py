@@ -21,14 +21,23 @@ reader's question.
 """
 
 from collections.abc import Sequence
-from typing import Final
+from typing import Annotated, Final
 
-from pydantic import BaseModel, Field
+from pydantic import AfterValidator, BaseModel
 
 from aporia_rag.domain.models import ChatMessage
 from aporia_rag.domain.ports import ChatModel
 
-_NOT_BLANK: Final = r"\S"
+
+def _not_blank(text: str) -> str:
+    if not text.strip():
+        raise ValueError("must not be blank")
+    return text
+
+
+# Checked when the reply is read, not written into the JSON schema: Ollama cannot turn an
+# unanchored regex `pattern` into a grammar and refuses the request (found live, 2026-10-20).
+_NonBlank = Annotated[str, AfterValidator(_not_blank)]
 
 SUBJECT_PROMPT: Final = """\
 You find the subject of a question that compares philosophers.
@@ -41,13 +50,13 @@ You find the subject of a question that compares philosophers.
 class RewrittenQuery(BaseModel):
     """The structured reply to a rewrite."""
 
-    query: str = Field(pattern=_NOT_BLANK)
+    query: _NonBlank
 
 
 class ComparisonSubject(BaseModel):
     """The structured reply naming what a comparison is about."""
 
-    subject: str = Field(pattern=_NOT_BLANK)
+    subject: _NonBlank
 
 
 class QueryRewriter:

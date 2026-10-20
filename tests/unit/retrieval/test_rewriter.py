@@ -14,7 +14,7 @@ from aporia_rag.retrieval.rewriter import (
     QueryRewriter,
     RewrittenQuery,
 )
-from support.fakes import ScriptedChatModel
+from support.fakes import ScriptedChatModel, ungrammatical
 
 AUTHORS = ("Immanuel Kant", "John Stuart Mill", "Thomas Hobbes")
 QUESTION = "How can I test whether the principle behind my action is morally acceptable?"
@@ -68,3 +68,6 @@ def test_per_author_asks_once_for_the_subject_and_asks_each_author_about_it(
 def test_a_blank_reply_does_not_fit_the_schema(schema: type[BaseModel], field: str) -> None:  # 24.3
     with pytest.raises(ValidationError, match=field):
         schema.model_validate({field: "  \n"})
+    # ...but the schema the model gets stays a plain string: Ollama refuses regex patterns (18.10)
+    assert ungrammatical(schema.model_json_schema()) is None
+    assert schema.model_json_schema()["properties"][field]["type"] == "string"

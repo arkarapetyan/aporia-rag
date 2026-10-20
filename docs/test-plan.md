@@ -584,6 +584,7 @@ on every request.
 | 18.7 | `chat_structured` returns the reply parsed into the schema |
 | 18.8 | A structured reply that does not fit the schema raises `ProviderError` naming the schema; failures are translated as for `chat` |
 | 18.9 | Every request sets the configured context length (`num_ctx`), the same for `chat` and `chat_structured`: Ollama reloads a model whose context length changes |
+| 18.10 | A JSON schema that Ollama cannot turn into a grammar is a `ProviderError` with Ollama's reason. `FakeOllamaServer` rejects what Ollama rejects (a regex `pattern` not anchored with `^...$`): the first live run of the rewriter failed that way while every fake test passed (2026-10-20) |
 
 ## Component 19: Generator (`aporia_rag.generation.generator`)
 
@@ -755,7 +756,7 @@ composition root that builds it (A.1).
 |---|---|
 | 24.1 | `rewrite` makes one structured call: the rewriting prompt, which names every corpus author it is given, then the question; it returns the model's query without surrounding whitespace |
 | 24.2 | `per_author` makes one structured call for the subject of a comparison (the question, then the authors compared) and returns, for each author in the order given, "What does <author> say about <subject>?"; a question mark or full stop that ends the subject is dropped |
-| 24.3 | A blank query or subject does not fit the reply schema (so an adapter reports it as a `ProviderError`, as in 18.8) |
+| 24.3 | A blank query or subject does not fit the reply schema (so an adapter reports it as a `ProviderError`, as in 18.8), and the JSON schema sent to the model is a plain string, with no regex pattern (18.10) |
 
 ## Component 25: Corrective graph (`aporia_rag.graph`)
 

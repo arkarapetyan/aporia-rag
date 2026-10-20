@@ -1,4 +1,4 @@
-"""Tests for aporia_rag.adapters.ollama (test plan: 10.14-10.21 and 18.1-18.8).
+"""Tests for aporia_rag.adapters.ollama (test plan: 10.14-10.21 and 18.1-18.10).
 
 The adapter talks to a real `ollama.Client`; only the network underneath it
 is replaced, by `FakeOllamaServer` behind an `httpx.MockTransport`. So these
@@ -8,7 +8,7 @@ tests also check that we use the client library the way it expects.
 import httpx
 import ollama
 import pytest
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from aporia_rag.adapters.ollama import OllamaChatModel, OllamaEmbedder
 from aporia_rag.adapters.prompt_formats import QwenInstructFormat
@@ -291,3 +291,14 @@ def test_every_request_sets_the_same_context_length() -> None:  # 18.9
     chat, structured = server.requests
     assert chat["options"] == {"num_ctx": 8192}
     assert structured["options"] == {"num_ctx": 8192, "temperature": 0}
+
+
+class NonBlank(BaseModel):
+    text: str = Field(pattern=r"\S")  # unanchored: Ollama cannot build a grammar from it
+
+
+def test_a_schema_ollama_cannot_turn_into_a_grammar_is_a_provider_error() -> None:  # 18.10
+    server = FakeOllamaServer(structured_reply=lambda prompt: '{"text": "a"}')
+
+    with pytest.raises(ProviderError, match=r"Pattern must start with '\^' and end with '\$'"):
+        _chat_model(server.transport).chat_structured(CONVERSATION, NonBlank)

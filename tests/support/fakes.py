@@ -264,12 +264,34 @@ class FakeOllamaServer:
         return httpx.Response(200, json={"model": body["model"], "embeddings": vectors})
 
     def _chat(self, body: dict[str, Any]) -> httpx.Response:
+        if "format" in body and (reason := ungrammatical(body["format"])):
+            error = {"code": 400, "message": f"JSON schema conversion failed: {reason}"}
+            return httpx.Response(400, json={"error": error})
         if "format" in body:
             content = self.structured_reply(body["messages"][-1]["content"])
         else:
             content = self.reply
         message = {"role": "assistant", "content": content}
         return httpx.Response(200, json={"model": body["model"], "message": message, "done": True})
+
+
+def ungrammatical(schema: object) -> str | None:
+    """Why Ollama cannot turn this JSON schema into a grammar, in its words; None if it can.
+
+    Only the rule that has bitten so far: a regex `pattern` must be anchored
+    (`^...$`). Ollama answers 400 to anything else it cannot convert, so a fake
+    that accepts every schema lets such a schema pass every test (2026-10-20).
+    """
+    if isinstance(schema, dict):
+        pattern = schema.get("pattern")
+        if isinstance(pattern, str) and not (pattern.startswith("^") and pattern.endswith("$")):
+            return "Pattern must start with '^' and end with '$'"
+        children: list[object] = list(schema.values())
+    elif isinstance(schema, list):
+        children = list(schema)
+    else:
+        return None
+    return next((reason for child in children if (reason := ungrammatical(child))), None)
 
 
 def refusing_transport() -> httpx.MockTransport:
