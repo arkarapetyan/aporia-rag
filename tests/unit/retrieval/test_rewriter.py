@@ -79,6 +79,6 @@ def test_a_blank_reply_does_not_fit_the_schema(schema: type[BaseModel], field: s
     assert schema.model_json_schema()["properties"][field]["type"] == "string"
 
 
-def test_the_query_is_asked_for_before_the_author() -> None:  # 24.4
-    # The model writes the fields in the schema's order: the query first, as in the spike.
-    assert list(RewrittenQuery.model_json_schema()["properties"]) == ["query", "author"]
+def test_the_author_is_asked_for_before_the_query() -> None:  # 24.4
+    # The model writes the fields in the schema's order: it picks the author, then their words.
+    assert list(RewrittenQuery.model_json_schema()["properties"]) == ["author", "query"]

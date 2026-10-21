@@ -763,7 +763,7 @@ composition root that builds it (A.1).
 | 24.1 | `rewrite` makes one structured call: the rewriting prompt, which names every corpus author it is given, then the question; it returns the model's query and the author it names as most likely to answer (26.4), both without surrounding whitespace |
 | 24.2 | `per_author` makes one structured call for the subject of a comparison (the question, then the authors compared) and returns, for each author in the order given, "What does <author> say about <subject>?"; a question mark or full stop that ends the subject is dropped |
 | 24.3 | A blank query, author or subject does not fit the reply schema (so an adapter reports it as a `ProviderError`, as in 18.8), and the JSON schema sent to the model is a plain string, with no regex pattern (18.10) |
-| 24.4 | The rewrite's reply schema asks for the query before the author: the order the live tests and answers of 2026-10-21 ran with (a change of schema changes the queries, see "The web fallback") |
+| 24.4 | The rewrite's reply schema asks for the author before the query, so the model chooses whose words to use and then writes the query in them (measured 2026-10-21: gold evidence in the top 5 for 7 of 8 questions, against 4 of 8 with the query first; see "The web fallback") |
 
 ## Component 25: Corrective graph (`aporia_rag.graph`)
 
@@ -805,7 +805,14 @@ used to end with "none" after about 22 s: a rewrite, a second corpus search and 
   the queries: told to "Name that author" with `query` as the only field, the model had kept
   writing the query (2026-10-20's Cicero query is 2026-10-21's, "Is it ever expedient to do
   injustice?", with more words after it). A reply schema steers the model like its prompt, so what
-  the rewrites find is measured again (`data/eval/spike_rewrites_2.py`).
+  the rewrites find was measured again (`data/eval/spike_rewrites_2.py`): 1 of the 3 loop
+  questions found evidence in the top 5 (2026-10-20: 3 of 3), so five replies were compared on 8
+  in-corpus questions with a rule fixed before the run (`data/eval/spike_rewrite_variants.py`).
+  Author first, then query, with the measured prompt: 7 of 8 (3 of 3 loop questions); query
+  first: 4 of 8 (1 of 3); "a query of 10 to 20 words": 5 and 6 of 8. Asked for after the query,
+  the author also strayed outside the library (Machiavelli for Plato's royal lie), which would
+  send a corpus question to the web; asked for first, it was Plato. The one-field reply of
+  2026-10-20 ran on until Ollama's 120 s time-out for one question. Author first is built (24.4).
 - **Web pages as passages.** Each page (its snippet or opening, at most 2,000 characters) becomes
   a chunk with the site as its author and the page title as its title, so the grader and the
   generator take it unchanged. The web is asked the reader's question, for `k` pages, each graded

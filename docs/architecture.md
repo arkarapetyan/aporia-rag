@@ -392,7 +392,12 @@ measurements of 2026-10-20 had not: with `query` as the only field, the model, t
 author, had kept writing the query instead of starting a field it was not given (the Cicero query
 of 2026-10-20 is that of 2026-10-21, "Is it ever expedient to do injustice?", with 17 more words).
 A reply schema steers a model as its prompt does, so a schema change is measured like a prompt
-change. Questions about a work's details stay hard: for Plato's *Lysis* the web found Wikipedia's
+change. Measured on 8 in-corpus questions (`data/eval/spike_rewrite_variants.py`), the author
+asked for *before* the query did best: the model chooses whose words to use, then writes in them
+("why men surrender natural liberty to a commonwealth"), and gold evidence was in the top 5 for 7
+of 8 questions, against 4 of 8 with the query first and 5-6 of 8 for longer queries. Asked for
+after the query, the author named fits the query rather than the library (Machiavelli for Plato's
+royal lie): first, it was Plato. Questions about a work's details stay hard: for Plato's *Lysis* the web found Wikipedia's
 article and four more pages, and the grader left out all five.
 
 **Faster answers (2026-10-21).** Grading is most of the wait: 5 verdicts take about 7 s, and about

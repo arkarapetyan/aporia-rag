@@ -34,8 +34,16 @@ model, told to name the author, could not start another field, so it kept
 writing the query: the 2026-10-20 Cicero query is the 2026-10-21 one ("Is it
 ever expedient to do injustice?") with more words after it, and the
 Wittgenstein query ended in "author: Ludwig Wittgenstein". A reply schema
-steers the model as its prompt does, so what the rewrites find is measured
-again with both fields (data/eval/spike_rewrites_2.py).
+steers the model as its prompt does, so what the rewrites find was measured
+again with both fields (data/eval/spike_rewrite_variants.py, 8 in-corpus
+questions, rule fixed before the run). The author asked for first did best:
+the model chooses whose words to use, then writes the query in them ("why
+men surrender natural liberty to a commonwealth"), and the rewritten search
+found gold evidence in the top 5 for 7 of 8 questions (3 of the 3 the loop
+is for). The query first: 4 of 8 (1 of 3); a request for 10 to 20 words: 5
+and 6 of 8. Asked for after the query, the author fit the query rather than
+the library (Machiavelli for Plato's royal lie, which would have sent a
+corpus question to the web); asked for first, it was Plato.
 """
 
 from collections.abc import Sequence
@@ -66,10 +74,10 @@ You find the subject of a question that compares philosophers.
 
 
 class RewrittenQuery(BaseModel):
-    """The structured reply to a rewrite: the query first (see the module docstring)."""
+    """The structured reply to a rewrite: the author first (see the module docstring)."""
 
-    query: _NonBlank
     author: _NonBlank  # the author most likely to answer; "None of the listed authors", say
+    query: _NonBlank
 
 
 class ComparisonSubject(BaseModel):
