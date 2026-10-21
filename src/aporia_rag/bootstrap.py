@@ -1,9 +1,10 @@
 """The composition root: the one place that turns settings into concrete objects.
 
 Everything else depends on the ports in `domain.ports`; only this module
-knows that "ollama" means `OllamaEmbedder` or `OllamaChatModel` and "chroma"
-means `ChromaVectorStore`. Entry points (the CLI now; a UI later) get their
-components from a `Container` instead of wiring them themselves.
+knows that "ollama" means `OllamaEmbedder` or `OllamaChatModel`, "chroma"
+means `ChromaVectorStore` and "ddgs" means `DdgsWebSearch`. Entry points
+(the CLI now; a UI later) get their components from a `Container` instead of
+wiring them themselves.
 
 Providers are looked up by name in registries, so adding one (open/closed
 principle: extend, don't modify) is:
@@ -33,10 +34,11 @@ import ollama
 from aporia_rag.adapters.chroma import ChromaVectorStore
 from aporia_rag.adapters.ollama import OllamaChatModel, OllamaEmbedder
 from aporia_rag.adapters.prompt_formats import prompt_format_for
+from aporia_rag.adapters.web import DdgsWebSearch
 from aporia_rag.config import Settings
 from aporia_rag.domain.errors import ConfigurationError
 from aporia_rag.domain.models import EmbeddingSpace
-from aporia_rag.domain.ports import ChatModel, Chunker, Embedder, VectorStore
+from aporia_rag.domain.ports import ChatModel, Chunker, Embedder, VectorStore, WebSearch
 from aporia_rag.generation.generator import Generator
 from aporia_rag.grading.relevance import RelevanceGrader
 from aporia_rag.graph.corrective import CorrectiveRAG
@@ -51,6 +53,7 @@ from aporia_rag.retrieval.rewriter import QueryRewriter
 type EmbedderFactory = Callable[[Settings, httpx.BaseTransport | None], Embedder]
 type ChatModelFactory = Callable[[Settings, httpx.BaseTransport | None], ChatModel]
 type VectorStoreFactory = Callable[[Settings, EmbeddingSpace], VectorStore]
+type WebSearchFactory = Callable[[Settings], WebSearch]
 
 
 class ProviderRegistry[F]:
@@ -80,6 +83,7 @@ class ProviderRegistry[F]:
 EMBEDDERS = ProviderRegistry[EmbedderFactory]("embedding")
 CHAT_MODELS = ProviderRegistry[ChatModelFactory]("chat")
 VECTOR_STORES = ProviderRegistry[VectorStoreFactory]("vector store")
+WEB_SEARCHES = ProviderRegistry[WebSearchFactory]("web search")
 
 
 def build_embedder(
@@ -99,6 +103,10 @@ def build_chat_model(
 
 def build_vector_store(settings: Settings, space: EmbeddingSpace) -> VectorStore:
     return VECTOR_STORES.get(settings.storage.provider)(settings, space)
+
+
+def build_web_search(settings: Settings) -> WebSearch:
+    return WEB_SEARCHES.get(settings.web.provider)(settings)
 
 
 def build_chunker(settings: Settings) -> Chunker:
@@ -126,9 +134,17 @@ class Container:
     retriever only borrow components, and only the owner should close them.
     """
 
-    def __init__(self, settings: Settings, *, transport: httpx.BaseTransport | None = None) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        *,
+        transport: httpx.BaseTransport | None = None,
+        web_search: WebSearch | None = None,
+    ) -> None:
         self.settings = settings
         self.transport = transport  # for every outgoing HTTP request; None: the real network
+        # Replaces the configured web search: ddgs does not go through `transport`.
+        self._given_web_search = web_search
         self._resources = ExitStack()
 
     def __enter__(self) -> Self:
@@ -178,9 +194,17 @@ class Container:
         return QueryRewriter(self.chat_model)
 
     @cached_property
+    def web_search(self) -> WebSearch:
+        return self._given_web_search or build_web_search(self.settings)
+
+    @cached_property
     def corrective_rag(self) -> CorrectiveRAG:
         return CorrectiveRAG(
-            self.retriever, self.relevance_grader, self.generator, self.query_rewriter
+            self.retriever,
+            self.relevance_grader,
+            self.generator,
+            self.query_rewriter,
+            self.web_search,
         )
 
     def _owned[T](self, component: T) -> T:
@@ -225,6 +249,11 @@ def _chroma_store(settings: Settings, space: EmbeddingSpace) -> VectorStore:
     return ChromaVectorStore.persistent(settings.storage.index_dir, space)
 
 
+def _ddgs(settings: Settings) -> WebSearch:
+    return DdgsWebSearch()
+
+
 EMBEDDERS.register("ollama", _ollama_embedder)
 CHAT_MODELS.register("ollama", _ollama_chat_model)
 VECTOR_STORES.register("chroma", _chroma_store)
+WEB_SEARCHES.register("ddgs", _ddgs)

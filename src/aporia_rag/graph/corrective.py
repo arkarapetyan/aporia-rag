@@ -5,25 +5,34 @@ grader keeps the ones that answer it, and the answer is written from those
 alone. When the grader keeps nothing, the graph does not answer from noise:
 it rewrites the question once into the corpus's own vocabulary, searches
 again in the same scope, and grades what is new. If that finds nothing
-either, the outcome says so (the web fallback will be the next node).
+either, it searches the web, the last resort, and grades the pages the same
+way. When even they do not answer, the outcome says so.
 
     START -> [ask_each_author] -> retrieve -> grade -> generate -> END
-                                     ^           |
-                                     +- rewrite -+ (nothing kept, once)
+
+    after grade, when nothing is kept:
+      not rewritten yet -> rewrite -> retrieve     the author it names is in the corpus
+                                   -> web_search   ...or is not
+      rewritten         -> web_search -> grade
+      web searched      -> END, with no answer
 
 Where the model calls go (measured on 2026-10-20, see `retrieval.rewriter`):
 
 - Normal path, a passage is kept: one verdict per passage and one answer.
   Nothing else: the loop costs nothing when it is not needed.
-- Loop path, nothing kept: one rewrite, one more search with the same `k`
-  and author filter, a verdict for each passage not graded yet, then an
-  answer or none. At most one rewrite: one was enough in the measurements.
+- Loop path, nothing kept: one rewrite, which also names the author most
+  likely to answer. A corpus author: one more search with the same `k` and
+  author filter, a verdict for each passage not graded yet, and, if nothing
+  is kept again, the web. An author outside the corpus: the web at once,
+  with no second corpus search. The web gets the reader's question, for `k`
+  pages, one verdict each, then an answer or none.
 - Comparison path, two or more authors named: one call for the subject of the
   comparison, then each author's best passage, found and graded with that
-  author's own question. A survey of all authors is never rewritten.
+  author's own question. A survey (all authors, or a comparison) is never
+  rewritten and never goes to the web: its form is one section per author.
 
 LangGraph states the loop as nodes and conditional edges, so the web
-fallback adds one node and one edge. It is the only package that uses it.
+fallback is one node and three edges. It is the only package that uses it.
 """
 
 from collections.abc import Mapping, Sequence
@@ -34,9 +43,12 @@ from typing import Final, TypedDict
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
+from aporia_rag.domain.errors import ProviderError
 from aporia_rag.domain.models import Answer, RetrievedChunk
+from aporia_rag.domain.ports import WebSearch
 from aporia_rag.generation.generator import Generator
 from aporia_rag.grading.relevance import RelevanceGrader
+from aporia_rag.retrieval.names import authors_named_in
 from aporia_rag.retrieval.retriever import Retriever
 from aporia_rag.retrieval.rewriter import QueryRewriter
 
@@ -44,6 +56,7 @@ _ASK_EACH_AUTHOR: Final = "ask_each_author"
 _RETRIEVE: Final = "retrieve"
 _GRADE: Final = "grade"
 _REWRITE: Final = "rewrite"
+_WEB_SEARCH: Final = "web_search"
 _GENERATE: Final = "generate"
 
 
@@ -81,7 +94,10 @@ class Outcome:
     answer: Answer | None  # None: no passage found answers the question
     graded: tuple[RetrievedChunk, ...]  # every passage graded, in the order found
     relevant: tuple[RetrievedChunk, ...]  # those judged relevant: the answer's sources
-    query: str | None = None  # the rewritten search query, when the first search found nothing
+    query: str | None = None  # the rewritten query, when the corpus was searched again with it
+    outside_author: str | None = None  # the author most likely to answer, if not in the corpus
+    web: bool = False  # the web was searched: the answer's sources, if any, are web pages
+    web_error: str | None = None  # why the web search failed, if it did
     author_questions: tuple[str, ...] = ()  # a comparison: the question asked of each author
     seconds: Mapping[str, float] = field(default_factory=dict)  # by stage: retrieval, grading...
 
@@ -98,6 +114,9 @@ class _State(TypedDict, total=False):
     authors: tuple[str, ...]  # every author in the corpus, for the rewriter
     author_questions: dict[str, str]  # a comparison: author -> the question asked of them
     query: str | None
+    outside_author: str | None
+    web: bool
+    web_error: str | None
     found: list[RetrievedChunk]  # the latest search's passages
     graded: list[RetrievedChunk]
     relevant: list[RetrievedChunk]
@@ -114,11 +133,13 @@ class CorrectiveRAG:
         grader: RelevanceGrader,
         generator: Generator,
         rewriter: QueryRewriter,
+        web: WebSearch,
     ) -> None:
         self._retriever = retriever
         self._grader = grader
         self._generator = generator
         self._rewriter = rewriter
+        self._web = web
         self._graph = self._build()
 
     def answer(self, question: str, scope: Scope, *, k: int, authors: Sequence[str]) -> Outcome:
@@ -130,6 +151,9 @@ class CorrectiveRAG:
             "authors": tuple(authors),
             "author_questions": {},
             "query": None,
+            "outside_author": None,
+            "web": False,
+            "web_error": None,
             "graded": [],
             "relevant": [],
             "answer": None,
@@ -141,6 +165,9 @@ class CorrectiveRAG:
             graded=tuple(end["graded"]),
             relevant=tuple(end["relevant"]),
             query=end["query"],
+            outside_author=end["outside_author"],
+            web=end["web"],
+            web_error=end["web_error"],
             author_questions=tuple(end["author_questions"].values()),
             seconds=dict(end["seconds"]),
         )
@@ -151,12 +178,16 @@ class CorrectiveRAG:
         graph.add_node(_RETRIEVE, self._retrieve)
         graph.add_node(_GRADE, self._grade)
         graph.add_node(_REWRITE, self._rewrite)
+        graph.add_node(_WEB_SEARCH, self._search_web)
         graph.add_node(_GENERATE, self._generate)
         graph.add_conditional_edges(START, self._first_step, [_ASK_EACH_AUTHOR, _RETRIEVE])
         graph.add_edge(_ASK_EACH_AUTHOR, _RETRIEVE)
         graph.add_edge(_RETRIEVE, _GRADE)
-        graph.add_conditional_edges(_GRADE, self._after_grading, [_GENERATE, _REWRITE, END])
-        graph.add_edge(_REWRITE, _RETRIEVE)
+        graph.add_conditional_edges(
+            _GRADE, self._after_grading, [_GENERATE, _REWRITE, _WEB_SEARCH, END]
+        )
+        graph.add_conditional_edges(_REWRITE, self._after_rewrite, [_RETRIEVE, _WEB_SEARCH])
+        graph.add_edge(_WEB_SEARCH, _GRADE)
         graph.add_edge(_GENERATE, END)
         return graph.compile()
 
@@ -170,9 +201,15 @@ class CorrectiveRAG:
     def _after_grading(state: _State) -> str:
         if state["relevant"]:
             return _GENERATE
-        if state["scope"].survey or state["query"] is not None:
-            return END  # a survey is not rewritten, and a question is rewritten once
-        return _REWRITE
+        if state["scope"].survey or state["web"]:
+            return END  # a survey keeps to the corpus, and the web is the last resort
+        if state["query"] is None and state["outside_author"] is None:
+            return _REWRITE  # once
+        return _WEB_SEARCH
+
+    @staticmethod
+    def _after_rewrite(state: _State) -> str:
+        return _WEB_SEARCH if state["outside_author"] is not None else _RETRIEVE
 
     # -- nodes --------------------------------------------------------------
 
@@ -218,8 +255,28 @@ class CorrectiveRAG:
 
     def _rewrite(self, state: _State) -> _State:
         started = perf_counter()
-        query = self._rewriter.rewrite(state["question"], authors=state["authors"])
-        return {"query": query, "seconds": _add(state, "rewriting", started)}
+        rewrite = self._rewriter.rewrite(state["question"], authors=state["authors"])
+        if authors_named_in(rewrite.author, state["authors"]):
+            route: _State = {"query": rewrite.query}  # search the corpus again with it
+        else:  # the corpus has nothing of theirs to find: to the web, with no second search
+            route = {"outside_author": rewrite.author}
+        return {**route, "seconds": _add(state, "rewriting", started)}
+
+    def _search_web(self, state: _State) -> _State:
+        started = perf_counter()
+        error = None
+        try:
+            pages = self._web.search(state["question"], limit=state["k"])
+        except ProviderError as failure:  # offline, say: still report what was graded
+            pages, error = [], str(failure)
+        # A web page has no similarity to the query; its rank is its place in the list.
+        found = [RetrievedChunk(chunk=page, score=0.0) for page in pages]
+        return {
+            "found": found,
+            "web": True,
+            "web_error": error,
+            "seconds": _add(state, "web search", started),
+        }
 
     def _generate(self, state: _State) -> _State:
         started = perf_counter()

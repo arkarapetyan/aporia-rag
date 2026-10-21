@@ -1,7 +1,9 @@
 """Application settings, read from the environment and an optional `.env` file.
 
-Every setting has a default that runs fully locally, so nothing needs to be
-configured to start. To change one, set an environment variable named
+Every setting has a default that runs locally, with no account or key, so
+nothing needs to be configured to start. The web search is the one default
+that leaves the machine, and only for a question the corpus cannot answer.
+To change a setting, set an environment variable named
 `APORIA_<SECTION>__<FIELD>` (note the double underscore between section and
 field), or put the same line in a `.env` file in the working directory:
 
@@ -83,6 +85,14 @@ class StorageSettings(_Section):
     index_dir: Path = Path("data/index")
 
 
+class WebSettings(_Section):
+    provider: str = Field(
+        default="ddgs",
+        description="Searched only for a question the corpus cannot answer: the one part of "
+        "the default setup that leaves the machine.",
+    )
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="APORIA_",
@@ -98,6 +108,7 @@ class Settings(BaseSettings):
     chat: ChatSettings = ChatSettings()
     chunking: ChunkingSettings = ChunkingSettings()
     storage: StorageSettings = StorageSettings()
+    web: WebSettings = WebSettings()
 
 
 def load_settings() -> Settings:

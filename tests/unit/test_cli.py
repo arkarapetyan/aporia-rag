@@ -2,8 +2,8 @@
 
 The CLI is driven exactly as from a shell, through `main(argv)`. The seams
 are the injected httpx transport, which serves the mirror, the embedding
-model and the chat model from memory, and the injected settings, which point the corpus and
-the index at a temporary directory.
+model and the chat model from memory, the injected settings, which point the corpus and
+the index at a temporary directory, and the injected web search (ddgs does not use httpx).
 """
 
 import json
@@ -16,8 +16,10 @@ import pytest
 
 from aporia_rag.cli import main
 from aporia_rag.config import ChatSettings, Settings, StorageSettings
+from aporia_rag.domain.errors import ProviderError
+from aporia_rag.domain.models import web_passage
 from aporia_rag.generation.generator import SURVEY_PROMPT
-from support.fakes import RELEVANT, FakeOllamaServer, refusing_transport
+from support.fakes import RELEVANT, FakeOllamaServer, ScriptedWebSearch, refusing_transport
 
 BASE_URL = "https://mirror.test"
 MIRROR_FILES = {
@@ -170,8 +172,19 @@ def settings(tmp_path: Path) -> Settings:
     )
 
 
-def _run(*argv: str, manifest: Path, settings: Settings, transport: httpx.BaseTransport) -> int:
-    return main([*argv, "--manifest", str(manifest)], transport=transport, settings=settings)
+def _run(
+    *argv: str,
+    manifest: Path,
+    settings: Settings,
+    transport: httpx.BaseTransport,
+    web: ScriptedWebSearch | None = None,
+) -> int:
+    return main(
+        [*argv, "--manifest", str(manifest)],
+        transport=transport,
+        settings=settings,
+        web_search=web or ScriptedWebSearch(),  # finds nothing
+    )
 
 
 def test_index_reports_progress_and_counts(
@@ -833,16 +846,23 @@ def _not_hobbes(prompt: str) -> str:
 
 
 REWRITTEN = "nasty brutish short"
+OUTSIDE = "Ludwig Wittgenstein"
+PAGE = web_passage(
+    url="https://en.wikipedia.org/wiki/Language_game",
+    title="Language game",
+    text="A language-game is a philosophical concept developed by Ludwig Wittgenstein.",
+)
 
 
 def _verdicts_and_rewrite(
-    is_relevant: Callable[[str], bool], query: str = REWRITTEN
+    is_relevant: Callable[[str], bool], query: str = REWRITTEN, author: str = "Thomas Hobbes"
 ) -> Callable[[str], str]:
-    """Verdicts by `is_relevant`; the rewriter (its prompt is the bare question) gets `query`."""
+    """Verdicts by `is_relevant`; the rewriter (its prompt is the bare question) gets `query`,
+    naming `author` as the one most likely to answer."""
 
     def reply(prompt: str) -> str:
         if prompt.startswith("Question: "):
-            return f'{{"query": "{query}"}}'
+            return f'{{"query": "{query}", "author": "{author}"}}'
         return f'{{"relevant": {str(is_relevant(prompt)).lower()}}}'
 
     return reply
@@ -890,21 +910,27 @@ def test_ask_with_no_relevant_passage_says_so_without_an_answer(
     _index(index_manifest, settings, server)
     capsys.readouterr()
 
+    web = ScriptedWebSearch()  # finds nothing
+
     exit_code = _run(
         "ask", "What is a picture theory of meaning?", "-k", "2",
-        manifest=index_manifest, settings=settings, transport=server.transport,
+        manifest=index_manifest, settings=settings, transport=server.transport, web=web,
     )  # fmt: skip
 
     assert exit_code == 0
     assert server.chat_requests == []  # graded, but never asked for an answer
+    assert web.calls == [("What is a picture theory of meaning?", 2)]
     output = capsys.readouterr().out
     assert output.startswith(
-        f"{_rewrite_line(query)}\n\nNone of the 3 passages found answers this question.\n\n"
+        f"{_rewrite_line(query)}\n\n"
+        "Nothing relevant was found again, so the web was searched.\n\n"
+        "None of the 3 passages found answers this question.\n\n"
         "Left out as not relevant:\n"
     )
     left_out = output.split("Left out as not relevant:\n", 1)[1].split("\n\n", 1)[0]
     assert len(left_out.splitlines()) == 3  # both searches, so every decision can be checked
     assert all(re.match(r"^- .+ \(.+#\d+\)$", line) for line in left_out.splitlines())
+    assert "Other authors" not in output
 
 
 HOBBES_POINTER = (
@@ -1096,3 +1122,80 @@ def test_ask_releases_both_models_connections(
     _run("ask", "virtue", manifest=index_manifest, settings=settings, transport=server.transport)
 
     assert server.transport.closes == 2  # the embedder's client and the chat model's
+
+
+KANT_LEFT_OUT = (
+    "Left out as not relevant:\n"
+    "- Immanuel Kant, Fundamental Principles of the Metaphysic of Morals, First Section "
+    "(kant-groundwork/first-section#0)\n"
+)
+
+
+def _only_the_web_page(prompt: str) -> bool:
+    return prompt.startswith("Passage from en.wikipedia.org")
+
+
+def test_ask_answers_from_the_web_when_the_author_is_outside_the_corpus(
+    index_manifest: Path, settings: Settings, capsys: pytest.CaptureFixture[str]
+) -> None:  # 20.15
+    server = FakeOllamaServer(
+        reply=REPLY,
+        structured_reply=_verdicts_and_rewrite(_only_the_web_page, author=OUTSIDE),
+    )
+    _index(index_manifest, settings, server)
+    capsys.readouterr()
+    web = ScriptedWebSearch([PAGE])
+
+    exit_code = _run(
+        "ask", GOOD_WILL_QUESTION, "-k", "1",  # finds Kant first, who is not kept
+        manifest=index_manifest, settings=settings, transport=server.transport, web=web,
+    )  # fmt: skip
+
+    assert exit_code == 0
+    assert web.calls == [(GOOD_WILL_QUESTION, 1)]
+    # Kant's verdict, the rewrite, the page's verdict: no verdict on another author (Hobbes)
+    assert len(server.structured_requests) == 3
+    [chat] = server.chat_requests
+    assert _passage_headers(chat["messages"][-1]["content"]) == [
+        "[1] en.wikipedia.org, Language game"
+    ]
+    output = capsys.readouterr().out
+    assert output.startswith(
+        f"Nothing relevant was found, and the author most likely to answer, {OUTSIDE}, "
+        "is not in the corpus, so the web was searched.\n\n"
+        f"{REPLY}\n\nWeb sources:\n"
+        "[1] en.wikipedia.org, Language game (https://en.wikipedia.org/wiki/Language_game)\n\n"
+        f"{KANT_LEFT_OUT}"
+    )
+    assert "Other authors" not in output
+    assert re.search(
+        r"\nanswered in [\d.]+s \(rewriting [\d.]+s, retrieval [\d.]+s, grading [\d.]+s, "
+        r"web search [\d.]+s, generation [\d.]+s\)\n$",
+        output,
+    )
+
+
+def test_ask_says_why_when_the_web_search_fails(
+    index_manifest: Path, settings: Settings, capsys: pytest.CaptureFixture[str]
+) -> None:  # 20.16
+    server = FakeOllamaServer(
+        structured_reply=_verdicts_and_rewrite(lambda prompt: False, author=OUTSIDE)
+    )
+    _index(index_manifest, settings, server)
+    capsys.readouterr()
+    web = ScriptedWebSearch(failure=ProviderError("ddgs: 202 Ratelimit"))
+
+    exit_code = _run(
+        "ask", GOOD_WILL_QUESTION, "-k", "1",  # Kant only: Hobbes would be another author
+        manifest=index_manifest, settings=settings, transport=server.transport, web=web,
+    )  # fmt: skip
+
+    assert exit_code == 0
+    assert capsys.readouterr().out.startswith(
+        f"Nothing relevant was found, and the author most likely to answer, {OUTSIDE}, "
+        "is not in the corpus, so the web was searched; the search failed "
+        "(ddgs: 202 Ratelimit).\n\n"
+        "The one passage found does not answer this question.\n\n"
+        f"{KANT_LEFT_OUT}\n"
+    )
+    assert len(server.structured_requests) == 2  # Kant's verdict and the rewrite: nothing else

@@ -18,6 +18,14 @@ asking it of each author is plain code.
 
 The query is for the search only: verdicts and answers are always about the
 reader's question.
+
+The reply also names the author most likely to answer (2026-10-21), so the
+graph can tell a question for an author outside the corpus (Wittgenstein,
+Rawls) from one the corpus may still answer, with no call of its own. The
+prompt already asked for that author ("Name that author."), and the 2026-10-20
+Wittgenstein rewrite wrote "author: Ludwig Wittgenstein" into its query. The
+model writes the reply's fields in the schema's order, so the query, asked
+for first, is still written under the measured prompt.
 """
 
 from collections.abc import Sequence
@@ -48,9 +56,10 @@ You find the subject of a question that compares philosophers.
 
 
 class RewrittenQuery(BaseModel):
-    """The structured reply to a rewrite."""
+    """The structured reply to a rewrite: the query first (see the module docstring)."""
 
     query: _NonBlank
+    author: _NonBlank  # the author most likely to answer, who may be outside the corpus
 
 
 class ComparisonSubject(BaseModel):
@@ -65,13 +74,17 @@ class QueryRewriter:
     def __init__(self, model: ChatModel) -> None:
         self._model = model
 
-    def rewrite(self, question: str, *, authors: Sequence[str]) -> str:
-        """One search query for `question`, in the words of whichever of `authors` would answer."""
+    def rewrite(self, question: str, *, authors: Sequence[str]) -> RewrittenQuery:
+        """One search query for `question`, in the words of the author most likely to answer.
+
+        `authors` are the corpus's; the author named in the reply may be another.
+        """
         messages = [
             ChatMessage(role="system", content=_rewrite_prompt(authors)),
             ChatMessage(role="user", content=f"Question: {question}"),
         ]
-        return self._model.chat_structured(messages, RewrittenQuery).query.strip()
+        reply = self._model.chat_structured(messages, RewrittenQuery)
+        return RewrittenQuery(query=reply.query.strip(), author=reply.author.strip())
 
     def per_author(self, question: str, authors: Sequence[str]) -> list[str]:
         """The comparison `question` asked of each of `authors` on their own, in their order."""

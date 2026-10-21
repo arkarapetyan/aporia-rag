@@ -11,6 +11,7 @@ requires-python = ">=3.12"
 # so every change to uv.lock is traceable to one piece of the system.
 dependencies = [
     "chromadb>=1.5",
+    "ddgs>=9.16",
     "httpx>=0.28",
     "langgraph>=1.2",
     "ollama>=0.6",
@@ -104,11 +105,12 @@ source_modules = [
     "aporia_rag.evaluation",
     "aporia_rag.generation",
     "aporia_rag.grading",
+    "aporia_rag.graph",
     "aporia_rag.indexing",
     "aporia_rag.ingestion",
     "aporia_rag.retrieval",
 ]
-forbidden_modules = ["chromadb", "ollama"]
+forbidden_modules = ["chromadb", "ddgs", "ollama"]
 
 [[tool.importlinter.contracts]]
 id = "orchestration-framework"

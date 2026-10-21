@@ -1,8 +1,8 @@
 """In-memory test doubles for the application's ports.
 
 They implement the same interfaces as the real adapters (`Embedder`,
-`VectorStore`, `ChatModel`, Ollama's HTTP API) and the evaluation's
-`Searcher`, so code under test cannot tell them apart. `InMemoryVectorStore`
+`VectorStore`, `ChatModel`, `WebSearch`, Ollama's HTTP API) and the
+evaluation's `Searcher`, so code under test cannot tell them apart. `InMemoryVectorStore`
 is held to exactly the same behaviour as `ChromaVectorStore` by the shared
 contract suite in tests/unit/adapters/test_vector_store_contract.py.
 """
@@ -153,6 +153,21 @@ class ScriptedSearcher:
         self.calls.append((question, k))
         chunks = self.results.get(question, [])[:k]
         return [RetrievedChunk(chunk=c, score=0.9 - rank / 10) for rank, c in enumerate(chunks)]
+
+
+class ScriptedWebSearch:
+    """A `WebSearch` that finds fixed pages, best first (or fails), and records every search."""
+
+    def __init__(self, pages: Sequence[Chunk] = (), *, failure: Exception | None = None) -> None:
+        self.pages = list(pages)
+        self.failure = failure
+        self.calls: list[tuple[str, int]] = []
+
+    def search(self, query: str, *, limit: int) -> list[Chunk]:
+        self.calls.append((query, limit))
+        if self.failure is not None:
+            raise self.failure
+        return self.pages[:limit]
 
 
 RELEVANT: Final = '{"relevant": true}'

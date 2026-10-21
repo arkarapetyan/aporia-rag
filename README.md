@@ -27,15 +27,17 @@ flowchart LR
     R --> GD{Grade each passage<br/>for relevance}
     GD -- some relevant --> GEN[Generate answer<br/>with citations]
     GD -- none relevant,<br/>first search --> RW[Rewrite query in<br/>the corpus's words]
-    RW --> R
-    GD -. none relevant again .-> WS[Web search fallback<br/>planned]
-    WS -.-> GEN
+    RW -- author in<br/>the corpus --> R
+    RW -- author outside<br/>the corpus --> WS[Search the web]
+    GD -- none relevant again --> WS
+    WS --> GD
+    GD -- none relevant<br/>on the web --> N([Nothing found answers this])
     GEN -.-> V{Grounded in sources?<br/>Answers the question?<br/>planned}
     V -.-> A([Answer + citations])
 ```
 
-Solid arrows are built; dotted ones are planned. Every loop has a hard retry cap (one rewrite
-today), so the agent always terminates, with an honest "nothing found answers this" if it has to.
+Solid arrows are built; dotted ones are planned. Every loop has a hard cap (one rewrite, one web
+search), so the agent always terminates, with an honest "nothing found answers this" if it has to.
 
 ## Corpus
 
@@ -101,7 +103,10 @@ starts over. `search` shows what retrieval alone finds, with similarity scores a
 `[1]`, `[2]`...; under the answer it lists the passages used, the ones left out as not relevant, the
 other authors in the corpus who discuss the question, and the time each step took. When no passage
 is relevant, it rewrites the question once into the corpus's vocabulary, says so, and searches
-again; if nothing is relevant then either, it says so instead of answering. `ask --all-authors` grades the best passage of every
+again; if nothing is relevant then either, or the author most likely to answer is not in the corpus
+(Wittgenstein, say), it searches the web and grades the pages like passages, listing the answer's
+sources as "Web sources" with their URLs. Only then does the question leave the machine. If nothing
+is relevant on the web either, it says so instead of answering. `ask --all-authors` grades the best passage of every
 author and answers with one section per author, headed by the author and the passage number
 (about a minute on a laptop). A question that names authors is answered from those authors only:
 one named author as with `--author` ("What does Kant say about lying?"), two or more as a survey of
@@ -154,7 +159,8 @@ write the component, then run the full quality gate. Test lists live in
 - [x] Grader evaluation against the gold set (`evaluate --grade`) and loop questions
 - [x] Corrective graph (LangGraph): one query rewrite when nothing retrieved is relevant;
   comparisons asked of each author on their own
-- [ ] Web search fallback
+- [x] Web search fallback (`ddgs`): when nothing in the corpus answers, or the author most likely
+  to answer is not in it
 - [ ] Groundedness and answer-relevance graders
 - [ ] Evaluation: corrective vs. baseline RAG on a curated question set
 - [ ] Demo UI

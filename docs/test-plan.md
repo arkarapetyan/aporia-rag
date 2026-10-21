@@ -216,6 +216,7 @@ edition-specific and handled in a later component, after inspecting the real fil
 | # | Test |
 |---|---|
 | I.1 | Download Kant's *Metaphysic of Morals* (#5682, ~177 kB) from the real mirror; `clean_gutenberg_text` finds both markers and the body mentions "good will" |
+| I.10 | The ddgs adapter searches the real web for "What did Wittgenstein mean by a language game?": at least one page, each with a web URL as its id and some text, and one of them mentions Wittgenstein |
 
 ---
 
@@ -459,7 +460,8 @@ later graph tests is proven to behave like the real store.
 | 14.8 | The container is a context manager: leaving it closes the components it built that hold connections, even when the block raises; a container that built nothing closes nothing |
 | 14.9 | Builds an Ollama chat model from the settings (host, model, `keep_alive`, context length); an unknown chat provider raises `ConfigurationError` listing the available ones |
 | 14.10 | The container's generator, relevance grader and query rewriter share its chat model, built once and only when first used (so `search` never needs one), and closed on leaving the container |
-| 14.11 | The container's corrective graph is built once, from the container's retriever, grader, generator and rewriter |
+| 14.11 | The container's corrective graph is built once, from the container's retriever, grader, generator, rewriter and web search |
+| 14.12 | The container builds the web search named in the settings (`web.provider`, `ddgs` by default) once, and only when first used; an unknown web search provider raises `ConfigurationError` listing the available ones; a web search given to the container replaces it (ddgs does not go through httpx, so this is how tests replace it) |
 
 ## Component 15: `index` and `search` commands (`aporia_rag.cli`)
 
@@ -603,15 +605,17 @@ on every request.
 | 20.3 | `ask` on an empty index says to run `aporia-rag index` and never calls the chat model |
 | 20.4 | A chat model that is not pulled is a one-line error naming `ollama pull <model>` |
 | 20.5 | `ask` releases its connections, the chat model's included |
-| 20.6 | `ask` ends with how long the answer took, split into rewriting (only when a question was rewritten), retrieval, grading, generation and the search for other authors (a scripted clock makes the numbers exact) |
+| 20.6 | `ask` ends with how long the answer took, split into rewriting (only when a question was rewritten), retrieval, grading, web search (only when it ran), generation and the search for other authors (a scripted clock makes the numbers exact) |
 | 20.7 | `ask` grades every retrieved passage: the model answers from the relevant ones only, numbered from 1, and the passages left out are listed as not relevant |
-| 20.8 | When no passage is relevant, even after the rewritten search (25.2), `ask` says so, counting every passage graded, lists them all as left out (as when some are relevant), and never asks the model for an answer |
+| 20.8 | When no passage is relevant, even after the rewritten search (25.2) and the web search (26.5), `ask` says so, counting every passage graded, lists them all as left out (as when some are relevant), never asks the model for an answer, and does not look for other authors |
 | 20.9 | After the answer, `ask` grades the best passage of the other authors (those with no passage among the retrieved ones, at most 4) and lists the relevant ones as other authors who discuss the question |
 | 20.10 | With `--author`, `ask` does not look for other authors |
 | 20.11 | `ask --all-authors` grades the best passage of every author, prints the survey of the relevant ones, lists the others as not relevant, and does not look for other authors (the question is embedded once) |
 | 20.12 | `ask` with one author named in the question answers from that author's passages only and does not look for other authors |
 | 20.13 | `ask` with two or more authors named in the question compares them: it prints the question it asked about each author on its own (25.6), and surveys the best relevant passage of each, one section per author, in the order of the names |
 | 20.14 | When the first search finds nothing relevant, `ask` says that it searched again and with which query, answers from what that search found, and lists the passages of both searches that it left out |
+| 20.15 | When the author most likely to answer is outside the corpus, `ask` says so and that it searched the web, prints the answer with its sources under "Web sources" (citation and URL), lists what it left out, and does not look for other authors |
+| 20.16 | When the web search fails, `ask` says why, still lists the passages it left out, and exits with 0 |
 
 ## Component 21: Relevance grader (`aporia_rag.grading.relevance`)
 
@@ -754,9 +758,10 @@ composition root that builds it (A.1).
 
 | # | Test |
 |---|---|
-| 24.1 | `rewrite` makes one structured call: the rewriting prompt, which names every corpus author it is given, then the question; it returns the model's query without surrounding whitespace |
+| 24.1 | `rewrite` makes one structured call: the rewriting prompt, which names every corpus author it is given, then the question; it returns the model's query and the author it names as most likely to answer (26.4), both without surrounding whitespace |
 | 24.2 | `per_author` makes one structured call for the subject of a comparison (the question, then the authors compared) and returns, for each author in the order given, "What does <author> say about <subject>?"; a question mark or full stop that ends the subject is dropped |
-| 24.3 | A blank query or subject does not fit the reply schema (so an adapter reports it as a `ProviderError`, as in 18.8), and the JSON schema sent to the model is a plain string, with no regex pattern (18.10) |
+| 24.3 | A blank query, author or subject does not fit the reply schema (so an adapter reports it as a `ProviderError`, as in 18.8), and the JSON schema sent to the model is a plain string, with no regex pattern (18.10) |
+| 24.4 | The rewrite's reply schema asks for the query before the author, so the model writes the query under the measured prompt exactly as in the spike, and names the author after it |
 
 ## Component 25: Corrective graph (`aporia_rag.graph`)
 
@@ -768,12 +773,58 @@ the CLI with the scope rules, so the `search` command and the graph share them (
 | # | Test |
 |---|---|
 | 25.1 | When the first search finds a relevant passage, the graph answers from the relevant passages and makes no other model call: one verdict per passage, then the answer |
-| 25.2 | When no passage of the first search is relevant, the question is rewritten once (the rewriter gets the question and the corpus authors) and searched again with the same `k` and author filter; the new passages are graded against the original question, and the answer comes from the relevant ones |
+| 25.2 | When no passage of the first search is relevant, the question is rewritten once (the rewriter gets the question and the corpus authors) and, when the rewriter names a corpus author, searched again with the same `k` and author filter; the new passages are graded against the original question, and the answer comes from the relevant ones |
 | 25.3 | A passage already graded in the first search is not graded again |
-| 25.4 | When the rewritten search finds nothing relevant either, there is no answer and no third search, and every graded passage is left out |
-| 25.5 | A survey of all authors is never rewritten: the best passage of each author, graded against the question, then a survey of the relevant ones or no answer |
+| 25.4 | When the rewritten search finds nothing relevant either, there is no third corpus search (the web is searched instead: 26.5), and every graded passage is left out |
+| 25.5 | A survey of all authors is never rewritten, and never searches the web: the best passage of each author, graded against the question, then a survey of the relevant ones or no answer |
 | 25.6 | A comparison (two or more authors named) makes one model call for the per-author questions; each author's best passage is found with that author's question, among that author's works only, and graded against it; the survey answers the original question, in the order of the authors |
 | 25.7 | The outcome records how long each stage took, summed over both searches: rewriting (only when it ran), retrieval, grading and generation (a scripted clock makes the times exact) |
+
+## The web fallback: component 26
+
+Decided with Aren on 2026-10-21. A question the corpus cannot answer (4 of the 9 loop questions)
+used to end with "none" after about 22 s: a rewrite, a second corpus search and its verdicts
+(about 6 s), and the search for other authors (about 6 s), all for nothing. Now:
+
+- **When.** On the loop path only, never in a survey or a comparison (their form is one section
+  per corpus author). After the rewrite: if the author most likely to answer is outside the
+  corpus, the web is searched at once; if not, the corpus is searched again (25.2), and the web
+  only when that finds nothing relevant either.
+- **Which author, with no extra call.** The rewriter's reply names the author most likely to
+  answer, in a field of its own. The measured prompt already asks it to name that author, and the
+  Wittgenstein rewrite of 2026-10-20 wrote "author: Ludwig Wittgenstein" into its query. The field
+  comes after the query, so the query is still written as measured (24.4). Plain code
+  (`authors_named_in`) decides whether that author is in the corpus. A question about a work
+  outside the corpus by an author in it (Plato's *Lysis*) still pays for the second corpus
+  search: accepted.
+- **Web pages as passages.** Each page (its snippet or opening, at most 2,000 characters) becomes
+  a chunk with the site as its author and the page title as its title, so the grader and the
+  generator take it unchanged. The web is asked the reader's question, for `k` pages, each graded
+  against it. `ask` lists the answer's sources as "Web sources", with their URLs.
+- **Failure.** A web search that fails (no network, a rate limit) ends without an answer and says
+  why; what was graded before is still listed. The default must keep working offline.
+- **Other authors.** `ask` looks for other authors only when the corpus answered.
+- **Provider.** `ddgs` (9.16), a free metasearch library that needs no API key (4 packages: ddgs,
+  primp, lxml, click). It is the one part of the default setup that leaves the machine, and only
+  for a question the corpus cannot answer. It does not go through httpx, so tests replace it
+  through the container instead of the transport.
+
+Cost of the outside path: the rewrite (1.3-2.3 s), the web search (to be measured), one verdict
+per page (about 1.5 s each) and an answer. It saves the second corpus search's verdicts and the
+search for other authors (about 12 s together on 2026-10-20's Wittgenstein question).
+
+## Component 26: Web fallback (`aporia_rag.domain`, `aporia_rag.adapters.web`, `aporia_rag.graph`)
+
+| # | Test |
+|---|---|
+| 26.1 | `web_passage` makes a chunk of a web page: the site, without "www.", as author; the page title as title; the URL as id, document and source; the page's text without surrounding whitespace, cut at the last word boundary before 2,000 characters when longer |
+| 26.2 | The ddgs adapter asks ddgs for `limit` results to the query, from every text engine but Grokipedia (its articles are written by a language model, and an answer cites its pages as sources), and returns them as web passages, in ddgs's order; a result with no text or no web URL is skipped, and one with no title is titled by its URL |
+| 26.3 | ddgs finding nothing is an empty list; any other ddgs failure (a rate limit, a time-out, no network) is a `ProviderError` naming ddgs and its reason |
+| 26.4 | When the rewriter names an author outside the corpus, the corpus is not searched again: the web is searched with the reader's question (`k` pages), the pages are graded against the question, and the answer comes from the relevant ones; the outcome records the author and that the web was searched |
+| 26.5 | When the rewriter names a corpus author (by any name `authors_named_in` recognizes, a surname say), the corpus is searched again (25.2); when that finds nothing relevant either, the web is searched with the reader's question |
+| 26.6 | When the web finds nothing relevant, or nothing at all, there is no answer and no other search |
+| 26.7 | A web search that fails ends without an answer: the outcome records why, and keeps every passage graded before |
+| 26.8 | The outcome records how long the web search took, as a stage of its own |
 
 ## Architecture rules (`tests/unit/test_architecture.py`, run in the default suite)
 
@@ -786,7 +837,7 @@ instead of waiting for a code review to notice it.
 |---|---|
 | A.1 | Layers: `cli` > `bootstrap` > `graph` > {`adapters`, `config`, `evaluation`, `generation`, `grading`, `indexing`, `ingestion`, `retrieval`} > `domain`; nothing imports a layer above it, and the middle packages do not import each other |
 | A.3 | LangGraph is imported only by `graph` |
-| A.2 | Provider libraries (`chromadb`, `ollama`) are imported only by `adapters` (and so are reachable only through `bootstrap`) |
+| A.2 | Provider libraries (`chromadb`, `ollama`, `ddgs`) are imported only by `adapters` (and so are reachable only through `bootstrap`) |
 
 ## Real-model tests (opt-in: `make test-llm`; need Ollama with the configured embedding and chat models)
 
@@ -802,3 +853,4 @@ instead of waiting for a code review to notice it.
 | L.8 | The configured chat model rewrites "Can a dishonourable act ever really be in our interest?" into one short search query: a single line of at most 30 words, not the question itself |
 | L.9 | For "How do Kant and Mill differ on lying?", `per_author` returns one question per author, each naming its author and the subject (lying) |
 | L.10 | The relevance grader keeps Kant's and Mill's passages on lying, each judged against its own author's question, and leaves out Mill's passage on dissent (the comparison spike of 2026-10-20, 3 of 3) |
+| L.11 | The rewriter names an author outside the corpus for the Wittgenstein and veil-of-ignorance loop questions, and a corpus author for the two in-corpus questions that needed the rewrite on 2026-10-20 (the Cicero and Hobbes questions) |

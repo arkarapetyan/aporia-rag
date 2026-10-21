@@ -9,7 +9,7 @@ the environment's own: a missing file, a full disk).
     AporiaError
     ├── ConfigurationError          settings that cannot work (unknown provider...)
     ├── CorpusError                 a corpus text is unavailable or not the expected edition
-    ├── ProviderError               a model provider failed
+    ├── ProviderError               a model or web search provider failed
     │   ├── ProviderUnavailableError    ...because it cannot be reached
     │   └── ModelNotAvailableError      ...because the model is not installed/allowed
     ├── IndexMismatchError          an index built in a different embedding space
@@ -30,7 +30,7 @@ class CorpusError(AporiaError):
 
 
 class ProviderError(AporiaError):
-    """A model provider (embedding or chat) failed or answered nonsense."""
+    """A provider (embedding, chat or web search) failed or answered nonsense."""
 
 
 class ProviderUnavailableError(ProviderError):

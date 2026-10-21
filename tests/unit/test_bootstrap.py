@@ -12,6 +12,7 @@ import pytest
 
 from aporia_rag.adapters.chroma import ChromaVectorStore
 from aporia_rag.adapters.ollama import OllamaChatModel, OllamaEmbedder
+from aporia_rag.adapters.web import DdgsWebSearch
 from aporia_rag.bootstrap import (
     CHAT_MODELS,
     EMBEDDERS,
@@ -29,6 +30,7 @@ from aporia_rag.config import (
     OllamaSettings,
     Settings,
     StorageSettings,
+    WebSettings,
 )
 from aporia_rag.domain.errors import ConfigurationError
 from aporia_rag.domain.models import (
@@ -37,11 +39,12 @@ from aporia_rag.domain.models import (
     EmbeddingSpace,
     RetrievedChunk,
     SourceMetadata,
+    web_passage,
 )
 from aporia_rag.domain.ports import Embedder
 from aporia_rag.graph.corrective import Scope
 from support.builders import make_chunk
-from support.fakes import FakeOllamaServer, HashingEmbedder
+from support.fakes import FakeOllamaServer, HashingEmbedder, ScriptedWebSearch
 
 
 def test_builds_an_ollama_embedder_from_the_settings() -> None:  # 14.1
@@ -289,3 +292,51 @@ def test_the_containers_corrective_graph_answers_through_its_components(
     assert outcome.answer is not None
     assert outcome.answer.text == "Only a good will [1]."
     assert server.transport.closes == 2  # the embedder's client and the chat model's, once each
+
+
+def test_the_containers_graph_searches_the_web_given_to_the_container(
+    tmp_path: Path,
+) -> None:  # 14.11, 14.12
+    page = web_passage(
+        url="https://en.wikipedia.org/wiki/Good_will", title="Good will", text="A good will is..."
+    )
+    web = ScriptedWebSearch([page])
+
+    def replies(prompt: str) -> str:
+        if prompt.startswith("Question: "):  # the rewrite: an author outside the corpus
+            return '{"query": "good will", "author": "Ludwig Wittgenstein"}'
+        return f'{{"relevant": {str(prompt.startswith("Passage from en.wikipedia.org")).lower()}}}'
+
+    server = FakeOllamaServer(reply="A good will [1].", structured_reply=replies)
+    document = Document(
+        id="kant/first-section",
+        text="Nothing can be called good without qualification, except a good will.",
+        metadata=SourceMetadata(author="Immanuel Kant", title="Groundwork", source_id="test:kant"),
+    )
+    question = "Is anything good without qualification?"
+
+    settings = _container_settings(tmp_path)
+    with Container(settings, transport=server.transport, web_search=web) as container:
+        assert container.web_search is web
+        container.indexer.run([document])
+        outcome = container.corrective_rag.answer(
+            question, Scope(), k=1, authors=("Immanuel Kant",)
+        )
+
+    assert web.calls == [(question, 1)]
+    assert outcome.answer is not None
+    assert [source.chunk for source in outcome.answer.sources] == [page]
+
+
+def test_builds_the_ddgs_web_search_by_default_once_and_only_when_used(
+    tmp_path: Path,
+) -> None:  # 14.12
+    unusable = Container(_container_settings(tmp_path, web=WebSettings(provider="tavily")))
+    _ = unusable.retriever  # an unusable web search is no error until something needs it
+    with pytest.raises(ConfigurationError, match=r"web search provider 'tavily'.*ddgs"):
+        _ = unusable.web_search
+
+    container = Container(_container_settings(tmp_path))
+
+    assert isinstance(container.web_search, DdgsWebSearch)
+    assert container.web_search is container.web_search

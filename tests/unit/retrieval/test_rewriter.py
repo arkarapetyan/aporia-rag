@@ -1,4 +1,4 @@
-"""Tests for aporia_rag.retrieval.rewriter (test plan: 24.1-24.3).
+"""Tests for aporia_rag.retrieval.rewriter (test plan: 24.1-24.4).
 
 The chat model is a `ScriptedChatModel`, so each test sees exactly what the
 model was asked and decides what it replies.
@@ -23,12 +23,16 @@ COMPARISON = "How do Kant and Mill differ on lying?"
 
 def test_rewrite_asks_once_for_a_query_in_the_authors_words() -> None:  # 24.1
     model = ScriptedChatModel(
-        structured_reply=lambda prompt: '{"query": "  categorical imperative universal law \\n"}'
+        structured_reply=lambda prompt: (
+            '{"query": "  categorical imperative universal law \\n", "author": " Immanuel Kant "}'
+        )
     )
 
-    query = QueryRewriter(model).rewrite(QUESTION, authors=AUTHORS)
+    rewrite = QueryRewriter(model).rewrite(QUESTION, authors=AUTHORS)
 
-    assert query == "categorical imperative universal law"
+    assert rewrite == RewrittenQuery(
+        query="categorical imperative universal law", author="Immanuel Kant"
+    )
     [(system, user)] = model.conversations
     assert system.role == "system"
     assert all(author in system.content for author in AUTHORS)
@@ -63,11 +67,18 @@ def test_per_author_asks_once_for_the_subject_and_asks_each_author_about_it(
 
 
 @pytest.mark.parametrize(
-    ("schema", "field"), [(RewrittenQuery, "query"), (ComparisonSubject, "subject")]
+    ("schema", "field"),
+    [(RewrittenQuery, "query"), (RewrittenQuery, "author"), (ComparisonSubject, "subject")],
 )
 def test_a_blank_reply_does_not_fit_the_schema(schema: type[BaseModel], field: str) -> None:  # 24.3
+    reply = dict.fromkeys(schema.model_fields, "Some words") | {field: "  \n"}
     with pytest.raises(ValidationError, match=field):
-        schema.model_validate({field: "  \n"})
+        schema.model_validate(reply)
     # ...but the schema the model gets stays a plain string: Ollama refuses regex patterns (18.10)
     assert ungrammatical(schema.model_json_schema()) is None
     assert schema.model_json_schema()["properties"][field]["type"] == "string"
+
+
+def test_the_query_is_asked_for_before_the_author() -> None:  # 24.4
+    # The model writes the fields in the schema's order: the query first, as in the spike.
+    assert list(RewrittenQuery.model_json_schema()["properties"]) == ["query", "author"]

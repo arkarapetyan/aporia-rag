@@ -6,7 +6,8 @@ mutate it behind another stage's back. `extra="forbid"` turns a misspelled
 field into an immediate error instead of a silently dropped value.
 """
 
-from typing import Literal, Self
+from typing import Final, Literal, Self
+from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -64,6 +65,35 @@ class Chunk(_ValueObject):
                 f"but text has {len(self.text)}"
             )
         return self
+
+
+# About two corpus chunks: a page's opening says what it is about, and five pages stay
+# well inside the chat model's context (Ollama cuts an overlong prompt from its start).
+WEB_TEXT_LIMIT: Final = 2000
+
+
+def web_passage(*, url: str, title: str, text: str) -> Chunk:
+    """A web page as a chunk, so the grader and the generator take it like a corpus passage.
+
+    The site stands as the author and the page title as the title, so the
+    page is cited as "en.wikipedia.org, Language game"; the URL is its id,
+    its document and its source. The text is the page's opening, cut at a
+    word to fewer than WEB_TEXT_LIMIT characters.
+    """
+    text = text.strip()
+    if len(text) > WEB_TEXT_LIMIT:
+        text = text[:WEB_TEXT_LIMIT].rsplit(maxsplit=1)[0]
+    return Chunk(
+        id=url,
+        document_id=url,
+        index=0,
+        text=text,
+        start_char=0,
+        end_char=len(text),
+        metadata=SourceMetadata(
+            author=urlsplit(url).netloc.removeprefix("www."), title=title, source_id=url
+        ),
+    )
 
 
 class Passage(_ValueObject):

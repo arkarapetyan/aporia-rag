@@ -8,8 +8,8 @@ src/aporia_rag/
 ├── ingestion/     Raw text -> Documents -> Chunks. Depends on domain.
 ├── indexing/      Keeps the vector index in step with the corpus. Depends on domain ports.
 ├── retrieval/     Question -> nearest chunks; rewriting a question for search. Depends on domain ports.
-├── adapters/      Ollama, Chroma (later ddgs, Google...) implementations of the ports.
-├── graph/         The corrective loop (LangGraph): retrieve, grade, rewrite once, generate.
+├── adapters/      Ollama, Chroma and ddgs (later Google...) implementations of the ports.
+├── graph/         The corrective loop (LangGraph): retrieve, grade, rewrite once, web, generate.
 ├── evaluation/    Gold questions and metrics: retrieval (Hit@k, MRR) and the grader now, answers later.
 ├── config.py      Settings from the environment / .env.
 ├── bootstrap.py   Composition root: provider registries and the Container that builds everything.
@@ -21,7 +21,7 @@ src/aporia_rag/
 `Protocol`s in `domain/ports.py`, never through Ollama/Chroma/ddgs types directly. Only
 `adapters/` imports provider libraries, and only `bootstrap.py` knows which adapter is in use.
 
-So `adapters/` importing `chromadb` and `ollama` is the design, not a leak: adapters are the one
+So `adapters/` importing `chromadb`, `ollama` and `ddgs` is the design, not a leak: adapters are the one
 place where a provider's API meets our interfaces. What must hold is that nothing *else* does.
 
 **Enforced, not just documented.** The rules are [import-linter](https://import-linter.readthedocs.io)
@@ -102,7 +102,11 @@ of the loaded corpus then caught 71 margin notes merged into Cicero's paragraphs
 anticipated; that gap is now covered by both kinds of test.
 
 **Web fallback: `ddgs`.** Free with no API key. (The older `duckduckgo-search` package was renamed
-to `ddgs` upstream and is no longer maintained under its old name.)
+to `ddgs` upstream and is no longer maintained under its old name.) It asks several engines,
+Wikipedia first; Grokipedia is left out, because its articles are written by a language model and an
+answer cites its web pages as sources. ddgs does not go through httpx, so the tests cannot stop it
+with the injected transport: the container takes a web search to use instead, and a suite-wide
+fixture fails any unit test that reaches the real one.
 
 **Latin detection by function words, smoothed by neighbours.** A paragraph is English or Latin by
 majority vote of common function words (accents stripped, since the Loeb text marks verse
@@ -349,8 +353,12 @@ prints the query so the detour can be checked.
 
 ```
 START -> [ask_each_author] -> retrieve -> grade -> generate -> END
-                                 ^           |
-                                 +- rewrite -+   (nothing kept; once)
+
+after grade, when nothing is kept:
+  not rewritten yet -> rewrite -> retrieve     the author it names is in the corpus
+                               -> web_search   ...or is not
+  rewritten         -> web_search -> grade
+  web searched      -> END, with no answer
 ```
 
 **Model calls only where they are needed.** On the normal path (something kept) the graph makes
@@ -360,8 +368,20 @@ rewriter was built (2026-10-20): the trigger "nothing kept in the top 5" starts 
 the 7 gold questions that need it, with no needless start; the chat model's rewrites put evidence in
 the top 5 for all 3 retrieval questions that fail, at 1.5-1.9 s each; and a prompt line asking the
 grader to keep one side of a comparison was tried and reverted, because it made the grader more
-lenient everywhere (17 of 25 changed verdicts wrong) without fixing the comparison. Questions outside
-the corpus also pay for the rewrite (about 9 s) until the web fallback is the next node.
+lenient everywhere (17 of 25 changed verdicts wrong) without fixing the comparison.
+
+**The web, last (2026-10-21).** When the rewritten search finds nothing relevant either, the graph
+searches the web with the reader's question, for `k` pages, and grades them like passages: each page
+is a chunk with its site as author and its title as title (`domain.web_passage`, at most 2,000
+characters), so the grader and the generator need no change. A question outside the corpus need not
+pay for the second corpus search at all: the rewriter's reply names the author most likely to answer
+in a field of its own, after the query, and plain code checks that name against the corpus's
+authors. On 2026-10-20 the Wittgenstein question spent 9 verdicts (12.9 s) and the search for other
+authors (6.2 s) on nothing; now an outside author goes to the web straight after the rewrite, and
+`ask` looks for other authors only beside an answer from the corpus. A familiar name in a question
+about a work outside the corpus (Plato's *Lysis*) still pays for the second search: accepted. A
+survey never goes to the web, since its form is one section per corpus author, and a web search that
+fails (offline, a rate limit) ends without an answer and says why, keeping what was graded.
 
 **Comparisons per author.** Asked "How do Kant and Mill differ on lying?", the grader left out every
 passage, even Kant's and Mill's own on lying; asked "What does Immanuel Kant say about lying?" and
@@ -372,7 +392,7 @@ found among that author's works with that question and graded against it. The su
 reader's question, in the order of the names. A survey of all authors is never rewritten.
 
 **Why LangGraph.** The loop is a small state machine, and LangGraph states it as nodes and
-conditional edges: the web fallback (component 26) adds one node and one edge, and the compiled
+conditional edges: the web fallback (component 26) added one node and three edges, and the compiled
 graph draws itself as a Mermaid diagram. It is the only package that imports LangGraph (enforced),
 and its nodes call the same components the CLI used, so they are tested with the same in-memory
 fakes. LangGraph brings `langchain-core` as a dependency; nothing in the project uses LangChain's
@@ -437,7 +457,7 @@ words far from the source's (Hobbes's "Covenants Extorted By Feare", Chase's "Im
 Self-Control" for akrasia, Descartes's "automata", Plato's "royal lie"); four ask what the corpus
 does not contain, with `evidence = []`. Retrieval metrics leave the latter out (they have no rank to
 find), and the grader evaluation uses them: every retrieved passage is rightly "not relevant", so the
-loop must start, and later the web fallback is their only route.
+loop must start, and the web fallback is their only route.
 
 **What the first grader run showed (2026-10-20).** Of 68 disagreements, read one by one: 21 grader
 errors (all on the 40 retrieval questions), 28 leniency by design, 16 answering passages the gold

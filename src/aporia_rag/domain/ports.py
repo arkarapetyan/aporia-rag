@@ -1,9 +1,9 @@
 """Ports: the interfaces the application needs from the outside world.
 
 This is the "ports" half of ports and adapters (hexagonal architecture).
-The indexer, the retriever, the generator and, later, the LangGraph nodes
-depend only on these Protocols; `adapters/` holds the implementations
-(Ollama, Chroma, and later Google, Voyage, Anthropic...). A Protocol is satisfied structurally:
+The indexer, the retriever, the generator and the LangGraph nodes depend
+only on these Protocols; `adapters/` holds the implementations (Ollama,
+Chroma, ddgs, and later Google, Voyage, Anthropic...). A Protocol is satisfied structurally:
 any class with the right methods qualifies, without inheriting from it, so
 an adapter needs no import from here beyond the data types it exchanges,
 and the in-memory test fakes are plain classes.
@@ -179,3 +179,18 @@ def check_same_space(embedder: Embedder, store: VectorStore) -> None:
             f"the embedder makes {embedder.space.id} vectors, "
             f"but the store holds {store.space.id} vectors"
         )
+
+
+class WebSearch(Protocol):
+    """Finds pages on the web: the corrective graph's last resort, when the corpus has no answer.
+
+    Pages come back as chunks made with `models.web_passage`, so the grader
+    and the generator take them like corpus passages.
+    """
+
+    def search(self, query: str, *, limit: int) -> list[Chunk]:
+        """At most `limit` pages for `query`, best first; none found is an empty list.
+
+        A search that cannot be made (no network, a rate limit) is a `ProviderError`.
+        """
+        ...

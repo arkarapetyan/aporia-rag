@@ -1,11 +1,12 @@
-"""Tests for aporia_rag.graph.corrective, the corrective loop (test plan: 25.1-25.7).
+"""Tests for aporia_rag.graph.corrective, the corrective loop (test plan: 25.1-25.7, 26.4-26.8).
 
 The graph runs the real retriever, grader, generator and rewriter over
 in-memory fakes: the hashing embedder ranks passages by the words they share
-with the query, and one `ScriptedChatModel` plays every model role. `Script`
-decides its replies by the kind of request, so each test states which
-passages the grader keeps and what the rewriter writes, and the recorded
-conversations show every model call the graph made.
+with the query, one `ScriptedChatModel` plays every model role, and a
+`ScriptedWebSearch` finds fixed web pages. `Script` decides the model's
+replies by the kind of request, so each test states which passages the
+grader keeps and what the rewriter writes, and the recorded conversations
+show every model call the graph made.
 """
 
 import re
@@ -14,7 +15,8 @@ from dataclasses import dataclass
 
 import pytest
 
-from aporia_rag.domain.models import Chunk, RetrievedChunk
+from aporia_rag.domain.errors import ProviderError
+from aporia_rag.domain.models import Chunk, RetrievedChunk, web_passage
 from aporia_rag.domain.ports import IndexRecord
 from aporia_rag.generation.generator import ANSWER_PROMPT, SURVEY_PROMPT, Generator
 from aporia_rag.grading.relevance import SYSTEM_PROMPT as GRADING_PROMPT
@@ -23,7 +25,13 @@ from aporia_rag.graph.corrective import CorrectiveRAG, Outcome, Scope
 from aporia_rag.retrieval.retriever import Retriever
 from aporia_rag.retrieval.rewriter import SUBJECT_PROMPT, QueryRewriter
 from support.builders import make_chunk
-from support.fakes import HashingEmbedder, InMemoryVectorStore, ScriptedChatModel, hash_vector
+from support.fakes import (
+    HashingEmbedder,
+    InMemoryVectorStore,
+    ScriptedChatModel,
+    ScriptedWebSearch,
+    hash_vector,
+)
 
 KANT = make_chunk(
     "kant/first-section#0", "Nothing can be called good without qualification, except a good will."
@@ -47,6 +55,12 @@ MILL = make_chunk(
     title="Utilitarianism",
     section="Chapter II",
 )
+PAGE = web_passage(
+    url="https://en.wikipedia.org/wiki/Original_position",
+    title="Original position",
+    text="Behind a veil of ignorance, no one knows their place in society.",
+)
+CHUNKS = (KANT, LAW, HOBBES, MILL, PAGE)
 AUTHORS = ("Immanuel Kant", "John Stuart Mill", "Thomas Hobbes")
 GOOD_WILL = "What can be called good without qualification?"  # finds KANT first
 REPLY = "The scripted answer [1]."
@@ -58,12 +72,13 @@ class Script:
 
     keep: Callable[[Chunk], bool] = lambda chunk: True
     query: str = "nasty brutish short life"  # finds HOBBES first
+    author: str = "Thomas Hobbes"  # the author the rewriter names: in the corpus
     subject: str = "the good"
 
     def reply(self, prompt: str) -> str:
         if prompt.startswith("Passage from "):
             passage = prompt.split(":\n", 1)[1].rsplit("\n\nQuestion: ", 1)[0]
-            [chunk] = [chunk for chunk in (KANT, LAW, HOBBES, MILL) if chunk.text == passage]
+            [chunk] = [chunk for chunk in CHUNKS if chunk.text == passage]
             return f'{{"relevant": {str(self.keep(chunk)).lower()}}}'
         if prompt.startswith("[1] "):  # a survey: one paragraph per numbered passage
             count = len(re.findall(r"^\[\d+\] ", prompt, re.MULTILINE))
@@ -71,7 +86,7 @@ class Script:
             return f'{{"paragraphs": [{paragraphs}]}}'
         if "\nAuthors compared: " in prompt:
             return f'{{"subject": "{self.subject}"}}'
-        return f'{{"query": "{self.query}"}}'
+        return f'{{"query": "{self.query}", "author": "{self.author}"}}'
 
 
 @dataclass
@@ -79,6 +94,7 @@ class Setup:
     graph: CorrectiveRAG
     model: ScriptedChatModel
     embedder: HashingEmbedder
+    web: ScriptedWebSearch
 
     def answer(self, question: str, scope: Scope | None = None, *, k: int = 1) -> Outcome:
         return self.graph.answer(question, scope or Scope(), k=k, authors=AUTHORS)
@@ -101,12 +117,13 @@ class Setup:
                 passage, question = (
                     conversation[1].content.split(":\n", 1)[1].rsplit("\n\nQuestion: ", 1)
                 )
-                [chunk] = [c for c in (KANT, LAW, HOBBES, MILL) if c.text == passage]
+                [chunk] = [c for c in CHUNKS if c.text == passage]
                 pairs.append((chunk.id, question))
         return pairs
 
 
-def _setup(script: Script) -> Setup:
+def _setup(script: Script, web: ScriptedWebSearch | None = None) -> Setup:
+    web = web or ScriptedWebSearch()
     embedder = HashingEmbedder()
     store = InMemoryVectorStore(embedder.space)
     store.upsert(
@@ -117,9 +134,13 @@ def _setup(script: Script) -> Setup:
     )
     model = ScriptedChatModel(reply=REPLY, structured_reply=script.reply)
     graph = CorrectiveRAG(
-        Retriever(embedder, store), RelevanceGrader(model), Generator(model), QueryRewriter(model)
+        Retriever(embedder, store),
+        RelevanceGrader(model),
+        Generator(model),
+        QueryRewriter(model),
+        web,
     )
-    return Setup(graph, model, embedder)
+    return Setup(graph, model, embedder, web)
 
 
 def _chunks(passages: Sequence[RetrievedChunk]) -> list[str]:
@@ -143,6 +164,8 @@ def test_a_relevant_first_search_is_answered_with_no_other_model_call() -> None:
     assert _chunks(outcome.left_out) == [LAW.id]
     assert outcome.query is None
     assert setup.embedder.query_calls == [GOOD_WILL]  # one search
+    assert setup.web.calls == []
+    assert not outcome.web
 
 
 def test_nothing_relevant_is_rewritten_once_and_searched_again() -> None:  # 25.2
@@ -159,9 +182,11 @@ def test_nothing_relevant_is_rewritten_once_and_searched_again() -> None:  # 25.
     assert setup.verdicts() == [(KANT.id, GOOD_WILL), (HOBBES.id, GOOD_WILL)]
     assert setup.model.conversations[-1][1].content.endswith(f"Question: {GOOD_WILL}")
     assert outcome.query == "nasty brutish short life"
+    assert outcome.outside_author is None
     assert outcome.answer is not None
     assert _chunks(outcome.answer.sources) == [HOBBES.id]
     assert _chunks(outcome.left_out) == [KANT.id]
+    assert setup.web.calls == []
 
 
 def test_the_second_search_keeps_the_author_filter() -> None:  # 25.2
@@ -197,7 +222,8 @@ def test_nothing_relevant_after_the_rewrite_ends_without_an_answer() -> None:  #
     outcome = setup.answer(GOOD_WILL)
 
     assert setup.calls() == ["verdict", "rewrite", "verdict"]
-    assert len(setup.embedder.query_calls) == 2  # no third search
+    assert len(setup.embedder.query_calls) == 2  # no third corpus search: the web instead (26.5)
+    assert setup.web.calls == [(GOOD_WILL, 1)]
     assert outcome.answer is None
     assert outcome.relevant == ()
     assert _chunks(outcome.left_out) == [KANT.id, HOBBES.id]
@@ -212,6 +238,7 @@ def test_a_survey_of_all_authors_is_never_rewritten(anything_kept: bool) -> None
     assert setup.calls() == ["verdict"] * 3 + (["survey"] if anything_kept else [])
     assert sorted(_chunks(outcome.graded)) == sorted([KANT.id, MILL.id, HOBBES.id])
     assert outcome.query is None
+    assert setup.web.calls == []
     if anything_kept:
         assert outcome.answer is not None
         assert outcome.answer.text == "Immanuel Kant [1]\nParagraph 1."
@@ -233,6 +260,7 @@ def test_a_comparison_asks_about_each_author_on_their_own() -> None:  # 25.6
     # Unfiltered, Hobbes's question finds KANT first: each search keeps to its author.
     assert setup.embedder.query_calls == [kant_question, hobbes_question]
     assert setup.verdicts() == [(KANT.id, kant_question), (HOBBES.id, hobbes_question)]
+    assert setup.web.calls == []
     survey = setup.model.conversations[-1][1].content
     assert survey.endswith(f"Question: {question}")
     assert outcome.answer is not None
@@ -266,3 +294,93 @@ def test_the_outcome_records_how_long_each_stage_took(
     direct = _setup(Script(keep=_only(KANT))).answer(GOOD_WILL)
 
     assert direct.seconds == {"retrieval": 0.5, "grading": 1.5, "generation": 4.0}
+
+
+OUTSIDE = "John Rawls"  # an author the rewriter may name who is not in the corpus
+
+
+def _ids(chunks: Sequence[Chunk]) -> list[str]:
+    return [chunk.id for chunk in chunks]
+
+
+def test_an_author_outside_the_corpus_sends_the_question_to_the_web() -> None:  # 26.4
+    web = ScriptedWebSearch([PAGE])
+    setup = _setup(Script(keep=_only(PAGE), author=OUTSIDE), web)
+
+    outcome = setup.answer(GOOD_WILL)  # KANT, not kept
+
+    assert setup.calls() == ["verdict", "rewrite", "verdict", "answer"]
+    assert setup.embedder.query_calls == [GOOD_WILL]  # the corpus is not searched again
+    assert web.calls == [(GOOD_WILL, 1)]  # the reader's question, for k pages
+    assert setup.verdicts() == [(KANT.id, GOOD_WILL), (PAGE.id, GOOD_WILL)]
+    assert setup.model.conversations[-1][1].content.endswith(f"Question: {GOOD_WILL}")
+    assert outcome.outside_author == OUTSIDE
+    assert outcome.query is None  # nothing was searched again in the corpus
+    assert outcome.web
+    assert outcome.web_error is None
+    assert outcome.answer is not None
+    assert _chunks(outcome.answer.sources) == [PAGE.id]
+    assert _chunks(outcome.left_out) == [KANT.id]
+
+
+def test_a_corpus_author_is_searched_again_and_the_web_only_after_that() -> None:  # 26.5
+    web = ScriptedWebSearch([PAGE])
+    setup = _setup(Script(keep=_only(PAGE), author="Hobbes"), web)  # a surname names him
+
+    outcome = setup.answer(GOOD_WILL)
+
+    assert setup.calls() == ["verdict", "rewrite", "verdict", "verdict", "answer"]
+    assert setup.embedder.query_calls == [GOOD_WILL, "nasty brutish short life"]
+    assert web.calls == [(GOOD_WILL, 1)]
+    assert outcome.query == "nasty brutish short life"
+    assert outcome.outside_author is None
+    assert outcome.web
+    assert outcome.answer is not None
+    assert _chunks(outcome.answer.sources) == [PAGE.id]
+    assert _chunks(outcome.left_out) == [KANT.id, HOBBES.id]
+
+
+@pytest.mark.parametrize("pages", [[PAGE], []], ids=["nothing-relevant", "nothing-found"])
+def test_nothing_relevant_on_the_web_ends_without_an_answer(pages: list[Chunk]) -> None:  # 26.6
+    web = ScriptedWebSearch(pages)
+    setup = _setup(Script(keep=lambda chunk: False, author=OUTSIDE), web)
+
+    outcome = setup.answer(GOOD_WILL)
+
+    assert setup.calls() == ["verdict", "rewrite"] + ["verdict"] * len(pages)
+    assert setup.embedder.query_calls == [GOOD_WILL]
+    assert len(web.calls) == 1  # no other search of any kind
+    assert outcome.answer is None
+    assert outcome.web
+    assert _chunks(outcome.left_out) == [KANT.id, *_ids(pages)]
+
+
+def test_a_failed_web_search_ends_without_an_answer_and_says_why() -> None:  # 26.7
+    web = ScriptedWebSearch(failure=ProviderError("ddgs: 202 Ratelimit"))
+    setup = _setup(Script(keep=lambda chunk: False, author=OUTSIDE), web)
+
+    outcome = setup.answer(GOOD_WILL)
+
+    assert setup.calls() == ["verdict", "rewrite"]
+    assert outcome.answer is None
+    assert outcome.web
+    assert outcome.web_error == "ddgs: 202 Ratelimit"
+    assert _chunks(outcome.left_out) == [KANT.id]  # what was graded before is kept
+
+
+def test_the_web_search_is_timed_as_a_stage_of_its_own(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:  # 26.8
+    # retrieve, grade, rewrite, web search, grade, generate: a start and an end each
+    _clock(monkeypatch, 0.0, 0.5, 0.5, 2.0, 2.0, 3.5, 3.5, 4.75, 4.75, 6.25, 6.25, 10.25)
+    setup = _setup(Script(keep=_only(PAGE), author=OUTSIDE), ScriptedWebSearch([PAGE]))
+
+    outcome = setup.answer(GOOD_WILL)
+
+    assert outcome.seconds == {
+        "retrieval": 0.5,
+        "grading": 3.0,
+        "rewriting": 1.5,
+        "web search": 1.25,
+        "generation": 4.0,
+    }

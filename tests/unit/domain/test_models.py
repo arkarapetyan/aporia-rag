@@ -1,4 +1,4 @@
-"""Tests for aporia_rag.domain.models (test plan: Component 1).
+"""Tests for aporia_rag.domain.models (test plan: Component 1, and 26.1).
 
 Only our own constraints are tested here (provenance completeness, span
 consistency, immutability), not pydantic's general behaviour.
@@ -14,6 +14,7 @@ from aporia_rag.domain.models import (
     EmbeddingSpace,
     Passage,
     SourceMetadata,
+    web_passage,
 )
 
 METADATA = SourceMetadata(author="Plato", title="The Republic", source_id="gutenberg:1497")
@@ -136,3 +137,25 @@ class TestChatMessage:
     def test_rejects_other_roles_and_empty_content(self, fields: dict[str, str]) -> None:  # 1.18
         with pytest.raises(ValidationError):
             ChatMessage.model_validate(fields)
+
+
+class TestWebPassage:
+    URL = "https://www.britannica.com/topic/language-game"
+
+    def test_a_web_page_is_cited_by_site_and_title_and_identified_by_its_url(self) -> None:  # 26.1
+        page = web_passage(url=self.URL, title="Language game", text="  A language game is...\n")
+
+        assert page.metadata.citation == "britannica.com, Language game"
+        assert page.metadata.source_id == self.URL
+        assert page.id == page.document_id == self.URL
+        assert page.text == "A language game is..."
+        assert (page.index, page.start_char, page.end_char) == (0, 0, len(page.text))
+
+    def test_a_long_page_is_cut_at_a_word_before_the_limit(self) -> None:  # 26.1
+        words = "word " * 400  # 2,000 characters
+        text = f"{words[:1998]}xyz more"  # character 2,000 falls inside "worxyz"
+
+        page = web_passage(url=self.URL, title="Long", text=text)
+
+        assert page.text == words[:1994]  # "worxyz" is dropped whole, with the space before it
+        assert text.startswith(page.text)

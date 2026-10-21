@@ -26,6 +26,7 @@ from aporia_rag.bootstrap import Container
 from aporia_rag.config import Settings, load_settings
 from aporia_rag.domain.errors import AporiaError
 from aporia_rag.domain.models import RetrievedChunk
+from aporia_rag.domain.ports import WebSearch
 from aporia_rag.evaluation.gold import GoldSet, load_gold_set
 from aporia_rag.evaluation.grading import (
     GradingReport,
@@ -42,7 +43,7 @@ from aporia_rag.evaluation.retrieval import (
     mean_reciprocal_rank,
     write_retrievals,
 )
-from aporia_rag.graph.corrective import Scope
+from aporia_rag.graph.corrective import Outcome, Scope
 from aporia_rag.graph.corrective import search as search_in_scope
 from aporia_rag.indexing.indexer import WorkProgress
 from aporia_rag.ingestion.corpus import WorkSpec, load_manifest
@@ -73,16 +74,21 @@ def main(
     *,
     transport: httpx.BaseTransport | None = None,
     settings: Settings | None = None,
+    web_search: WebSearch | None = None,
 ) -> int:
     """Run the CLI.
 
-    `transport` replaces the network (the mirror and the model server) and
-    `settings` replaces the environment; both exist for tests.
+    `transport` replaces the network (the mirror and the model server),
+    `settings` the environment and `web_search` the web search, which does
+    not go through `transport`; all three exist for tests.
     """
     args = _parser().parse_args(argv)
     command: _Command = args.run
     try:
-        with Container(settings or load_settings(), transport=transport) as container:
+        container = Container(
+            settings or load_settings(), transport=transport, web_search=web_search
+        )
+        with container:
             return command(args, container)
     except (AporiaError, OSError) as error:
         print(f"error: {error}", file=sys.stderr)
@@ -358,7 +364,7 @@ def _require_index(container: Container) -> None:
 
 
 # The stages of an answer, in the order the time report lists them.
-_STAGES = ("rewriting", "retrieval", "grading", "generation")
+_STAGES = ("rewriting", "retrieval", "grading", "web search", "generation")
 
 
 def _ask(args: argparse.Namespace, container: Container) -> int:
@@ -378,34 +384,55 @@ def _ask(args: argparse.Namespace, container: Container) -> int:
     if outcome.query is not None:
         print("Nothing relevant was found, so the question was searched again as: ", end="")
         print(f'"{outcome.query}"\n')
+    if outcome.web:
+        print(f"{_why_the_web(outcome)}\n")
     if outcome.answer is not None:
         print(outcome.answer.text)
-        print("\nPassages:")
+        print("\nWeb sources:" if outcome.web else "\nPassages:")
         for number, source in enumerate(outcome.answer.sources, start=1):
             print(f"[{number}] {_label(source)}")
     else:
-        print(f"None of the {len(outcome.graded)} passages found answers this question.")
+        print(_nothing_answers(len(outcome.graded)))
     if outcome.left_out:
         print("\nLeft out as not relevant:")
         for passage in outcome.left_out:
             print(f"- {_label(passage)}")
-    answered = perf_counter()
-    others = (
-        _other_authors(args.question, container, works, outcome.graded)
-        if scope.unrestricted
-        else []
-    )
-    if others:
-        print("\nOther authors who discuss this:")
-        for passage in others:
-            print(f"- {_label(passage)}")
-    pointed = perf_counter()
     stages = [
         f"{stage} {outcome.seconds[stage]:.1f}s" for stage in _STAGES if stage in outcome.seconds
     ]
-    stages.append(f"other authors {pointed - answered:.1f}s")
-    print(f"\nanswered in {pointed - started:.1f}s ({', '.join(stages)})")
+    done = perf_counter()
+    # Other authors are worth the wait (one verdict each) only next to an answer from the
+    # corpus; when the corpus has none, the graph has searched the web.
+    if scope.unrestricted and not outcome.web:
+        answered = done
+        others = _other_authors(args.question, container, works, outcome.graded)
+        if others:
+            print("\nOther authors who discuss this:")
+            for passage in others:
+                print(f"- {_label(passage)}")
+        done = perf_counter()
+        stages.append(f"other authors {done - answered:.1f}s")
+    print(f"\nanswered in {done - started:.1f}s ({', '.join(stages)})")
     return 0
+
+
+def _nothing_answers(graded: int) -> str:
+    if graded == 1:
+        return "The one passage found does not answer this question."
+    return f"None of the {graded} passages found answers this question."
+
+
+def _why_the_web(outcome: Outcome) -> str:
+    if outcome.outside_author is not None:
+        why = (
+            f"Nothing relevant was found, and the author most likely to answer, "
+            f"{outcome.outside_author}, is not in the corpus"
+        )
+    else:
+        why = "Nothing relevant was found again"
+    if outcome.web_error is not None:
+        return f"{why}, so the web was searched; the search failed ({outcome.web_error})."
+    return f"{why}, so the web was searched."
 
 
 def _other_authors(
