@@ -1,4 +1,4 @@
-"""Tests for aporia_rag.adapters.ollama (test plan: 10.14-10.21 and 18.1-18.10).
+"""Tests for aporia_rag.adapters.ollama (test plan: 10.14-10.21 and 18.1-18.12).
 
 The adapter talks to a real `ollama.Client`; only the network underneath it
 is replaced, by `FakeOllamaServer` behind an `httpx.MockTransport`. So these
@@ -164,6 +164,9 @@ CONVERSATION = [
 ]
 
 
+CAP = 64  # the reply cap the tests ask for, unless they test the cap
+
+
 def _chat_model(
     transport: httpx.BaseTransport, *, context_length: int = 4096, keep_alive: str | None = None
 ) -> OllamaChatModel:
@@ -174,8 +177,8 @@ def _chat_model(
 def test_chat_sends_the_messages_in_order_with_thinking_off() -> None:  # 18.1
     server = FakeOllamaServer()
 
-    _chat_model(server.transport, keep_alive="10m").chat(CONVERSATION)
-    _chat_model(server.transport).chat(CONVERSATION)
+    _chat_model(server.transport, keep_alive="10m").chat(CONVERSATION, max_tokens=CAP)
+    _chat_model(server.transport).chat(CONVERSATION, max_tokens=CAP)
 
     with_keep_alive, without_keep_alive = server.requests
     assert with_keep_alive["model"] == CHAT_MODEL
@@ -192,7 +195,7 @@ def test_chat_sends_the_messages_in_order_with_thinking_off() -> None:  # 18.1
 def test_chat_returns_the_reply_without_surrounding_whitespace() -> None:  # 18.2
     server = FakeOllamaServer(reply="\n  A good will is good in itself [1].  \n")
 
-    assert _chat_model(server.transport).chat(CONVERSATION) == (
+    assert _chat_model(server.transport).chat(CONVERSATION, max_tokens=CAP) == (
         "A good will is good in itself [1]."
     )
 
@@ -202,7 +205,7 @@ def test_an_empty_reply_is_a_provider_error(reply: str) -> None:  # 18.3
     server = FakeOllamaServer(reply=reply)
 
     with pytest.raises(ProviderError, match=f"{CHAT_MODEL}.*empty"):
-        _chat_model(server.transport).chat(CONVERSATION)
+        _chat_model(server.transport).chat(CONVERSATION, max_tokens=CAP)
 
 
 @pytest.mark.parametrize(
@@ -223,7 +226,7 @@ def test_chat_failures_are_translated_like_the_embedders(
     transport: httpx.BaseTransport, error: type[ProviderError], message: str
 ) -> None:  # 18.4
     with pytest.raises(ProviderError, match=message) as raised:
-        _chat_model(transport).chat(CONVERSATION)
+        _chat_model(transport).chat(CONVERSATION, max_tokens=CAP)
 
     assert type(raised.value) is error
 
@@ -231,7 +234,7 @@ def test_chat_failures_are_translated_like_the_embedders(
 def test_chat_model_close_releases_the_connections() -> None:  # 18.5
     server = FakeOllamaServer()
     model = _chat_model(server.transport)
-    model.chat(CONVERSATION)
+    model.chat(CONVERSATION, max_tokens=CAP)
 
     model.close()
 
@@ -246,7 +249,7 @@ def test_structured_chat_sends_the_schema_with_thinking_off_and_temperature_zero
     # 18.6
     server = FakeOllamaServer()
 
-    _chat_model(server.transport).chat_structured(CONVERSATION, Verdict)
+    _chat_model(server.transport).chat_structured(CONVERSATION, Verdict, max_tokens=CAP)
 
     [request] = server.requests
     assert request["messages"][-1] == {"role": "user", "content": "What is the good will?"}
@@ -258,7 +261,7 @@ def test_structured_chat_sends_the_schema_with_thinking_off_and_temperature_zero
 def test_structured_chat_returns_the_reply_parsed_into_the_schema() -> None:  # 18.7
     server = FakeOllamaServer(structured_reply=lambda prompt: '{"relevant": false}')
 
-    verdict = _chat_model(server.transport).chat_structured(CONVERSATION, Verdict)
+    verdict = _chat_model(server.transport).chat_structured(CONVERSATION, Verdict, max_tokens=CAP)
 
     assert verdict == Verdict(relevant=False)
 
@@ -270,27 +273,27 @@ def test_a_structured_reply_that_does_not_fit_is_a_provider_error(reply: str) ->
     server = FakeOllamaServer(structured_reply=lambda prompt: reply)
 
     with pytest.raises(ProviderError, match=f"{CHAT_MODEL}.*Verdict"):
-        _chat_model(server.transport).chat_structured(CONVERSATION, Verdict)
+        _chat_model(server.transport).chat_structured(CONVERSATION, Verdict, max_tokens=CAP)
 
 
 def test_structured_chat_failures_are_translated_like_chat() -> None:  # 18.8
     server = FakeOllamaServer(models=[MODEL])
 
     with pytest.raises(ModelNotAvailableError, match=f"ollama pull {CHAT_MODEL}"):
-        _chat_model(server.transport).chat_structured(CONVERSATION, Verdict)
+        _chat_model(server.transport).chat_structured(CONVERSATION, Verdict, max_tokens=CAP)
 
 
 def test_every_request_sets_the_same_context_length() -> None:  # 18.9
     server = FakeOllamaServer()
     model = _chat_model(server.transport, context_length=8192)
 
-    model.chat(CONVERSATION)
-    model.chat_structured(CONVERSATION, Verdict)
+    model.chat(CONVERSATION, max_tokens=CAP)
+    model.chat_structured(CONVERSATION, Verdict, max_tokens=CAP)
 
     # A different context length would make Ollama reload the model between the two.
     chat, structured = server.requests
-    assert chat["options"] == {"num_ctx": 8192}
-    assert structured["options"] == {"num_ctx": 8192, "temperature": 0}
+    assert chat["options"]["num_ctx"] == structured["options"]["num_ctx"] == 8192
+    assert structured["options"]["temperature"] == 0
 
 
 class NonBlank(BaseModel):
@@ -301,4 +304,29 @@ def test_a_schema_ollama_cannot_turn_into_a_grammar_is_a_provider_error() -> Non
     server = FakeOllamaServer(structured_reply=lambda prompt: '{"text": "a"}')
 
     with pytest.raises(ProviderError, match=r"Pattern must start with '\^' and end with '\$'"):
-        _chat_model(server.transport).chat_structured(CONVERSATION, NonBlank)
+        _chat_model(server.transport).chat_structured(CONVERSATION, NonBlank, max_tokens=CAP)
+
+
+def test_every_request_sends_the_callers_reply_cap() -> None:  # 18.11
+    server = FakeOllamaServer()
+    model = _chat_model(server.transport)
+
+    model.chat(CONVERSATION, max_tokens=1024)
+    model.chat_structured(CONVERSATION, Verdict, max_tokens=16)
+
+    chat, structured = server.requests
+    assert chat["options"]["num_predict"] == 1024
+    assert structured["options"]["num_predict"] == 16
+
+
+def test_a_reply_cut_at_the_cap_is_a_provider_error() -> None:  # 18.12
+    server = FakeOllamaServer(
+        reply="A good will is good.", structured_reply=lambda prompt: '{"relevant": true}'
+    )
+    model = _chat_model(server.transport)
+
+    assert model.chat(CONVERSATION, max_tokens=5) == "A good will is good."  # just fits
+    with pytest.raises(ProviderError, match=f"{CHAT_MODEL}.*cut at the cap of 4 tokens"):
+        model.chat(CONVERSATION, max_tokens=4)
+    with pytest.raises(ProviderError, match=f"{CHAT_MODEL}.*cut at the cap of 1 tokens"):
+        model.chat_structured(CONVERSATION, Verdict, max_tokens=1)

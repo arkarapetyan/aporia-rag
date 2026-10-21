@@ -1,4 +1,4 @@
-"""Tests for aporia_rag.grading.relevance (test plan: 21.1-21.2).
+"""Tests for aporia_rag.grading.relevance (test plan: 21.1-21.4).
 
 The chat model is a `ScriptedChatModel`, so each test sees exactly what the
 model was asked and decides each verdict.
@@ -70,3 +70,11 @@ def test_is_relevant_grades_one_passage_in_one_call() -> None:  # 21.3
     assert grader.is_relevant(QUESTION, HOBBES) is True
     assert grader.is_relevant(QUESTION, KANT) is False
     assert len(hobbes_only.conversations) == 2
+
+
+def test_a_verdict_has_a_reply_cap() -> None:  # 21.4
+    model = ScriptedChatModel()
+
+    RelevanceGrader(model).is_relevant(QUESTION, KANT)
+
+    assert model.max_tokens == [16]

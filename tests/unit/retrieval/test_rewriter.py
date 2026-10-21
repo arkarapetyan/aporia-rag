@@ -1,4 +1,4 @@
-"""Tests for aporia_rag.retrieval.rewriter (test plan: 24.1-24.4).
+"""Tests for aporia_rag.retrieval.rewriter (test plan: 24.1-24.5).
 
 The chat model is a `ScriptedChatModel`, so each test sees exactly what the
 model was asked and decides what it replies.
@@ -82,3 +82,18 @@ def test_a_blank_reply_does_not_fit_the_schema(schema: type[BaseModel], field: s
 def test_the_author_is_asked_for_before_the_query() -> None:  # 24.4
     # The model writes the fields in the schema's order: it picks the author, then their words.
     assert list(RewrittenQuery.model_json_schema()["properties"]) == ["author", "query"]
+
+
+def test_a_rewrite_and_a_subject_have_a_reply_cap() -> None:  # 24.5
+    def reply(prompt: str) -> str:
+        if "\nAuthors compared: " in prompt:
+            return '{"subject": "lying"}'
+        return '{"author": "Immanuel Kant", "query": "maxim universal law"}'
+
+    model = ScriptedChatModel(structured_reply=reply)
+    rewriter = QueryRewriter(model)
+
+    rewriter.rewrite(QUESTION, authors=AUTHORS)
+    rewriter.per_author(COMPARISON, ["Immanuel Kant", "John Stuart Mill"])
+
+    assert model.max_tokens == [64, 32]

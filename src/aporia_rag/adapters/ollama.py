@@ -113,13 +113,20 @@ class OllamaChatModel:
         """Release the client's pooled HTTP connections."""
         _close(self._client)
 
-    def chat(self, messages: Sequence[ChatMessage]) -> str:
-        return self._reply(messages)
+    def chat(self, messages: Sequence[ChatMessage], *, max_tokens: int) -> str:
+        return self._reply(messages, max_tokens=max_tokens)
 
-    def chat_structured[M: BaseModel](self, messages: Sequence[ChatMessage], schema: type[M]) -> M:
+    def chat_structured[M: BaseModel](
+        self, messages: Sequence[ChatMessage], schema: type[M], *, max_tokens: int
+    ) -> M:
         # Ollama constrains generation to the JSON schema, so the reply is
         # valid JSON; whether it fits the schema is still checked.
-        reply = self._reply(messages, format=schema.model_json_schema(), options=_REPEATABLE)
+        reply = self._reply(
+            messages,
+            max_tokens=max_tokens,
+            format=schema.model_json_schema(),
+            options=_REPEATABLE,
+        )
         try:
             return schema.model_validate_json(reply)
         except ValidationError as error:
@@ -131,6 +138,7 @@ class OllamaChatModel:
         self,
         messages: Sequence[ChatMessage],
         *,
+        max_tokens: int,
         format: dict[str, Any] | None = None,
         options: dict[str, Any] | None = None,
     ) -> str:
@@ -145,8 +153,16 @@ class OllamaChatModel:
                 # models that cannot think are not affected.
                 think=False,
                 format=format,
-                options={"num_ctx": self._context_length, **(options or {})},
+                options={
+                    "num_ctx": self._context_length,
+                    "num_predict": max_tokens,
+                    **(options or {}),
+                },
                 keep_alive=self._keep_alive,
+            )
+        if response.done_reason == "length":
+            raise ProviderError(
+                f"Ollama's {self._model} reply was cut at the cap of {max_tokens} tokens"
             )
         reply = (response.message.content or "").strip()
         if not reply:

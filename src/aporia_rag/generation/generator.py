@@ -58,6 +58,11 @@ from elsewhere.
 - Write clear, modern English."""
 
 
+# Reply caps: the longest answer so far took about 550 tokens; a survey's paragraphs are short.
+ANSWER_MAX_TOKENS: Final = 1024
+SURVEY_MAX_TOKENS_PER_PASSAGE: Final = 256
+
+
 class SurveyReply(BaseModel):
     """A survey as the model writes it: one paragraph per passage, in their order."""
 
@@ -72,13 +77,17 @@ class Generator:
 
     def answer(self, question: str, passages: Sequence[RetrievedChunk]) -> Answer:
         """The model's answer, citing `passages` by their numbers in the order given."""
-        reply = self._model.chat(_messages(ANSWER_PROMPT, question, passages))
+        reply = self._model.chat(
+            _messages(ANSWER_PROMPT, question, passages), max_tokens=ANSWER_MAX_TOKENS
+        )
         return Answer(text=reply, sources=tuple(passages))
 
     def survey(self, question: str, passages: Sequence[RetrievedChunk]) -> Answer:
         """One section per passage, in the order given: its author and number, then a paragraph."""
         reply = self._model.chat_structured(
-            _messages(SURVEY_PROMPT, question, passages), _survey_reply(len(passages))
+            _messages(SURVEY_PROMPT, question, passages),
+            _survey_reply(len(passages)),
+            max_tokens=SURVEY_MAX_TOKENS_PER_PASSAGE * len(passages),
         )
         sections = (
             f"{passage.chunk.metadata.author} [{number}]\n{paragraph.strip()}"

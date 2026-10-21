@@ -75,13 +75,20 @@ class ChatModel(Protocol):
     "system" role (Ollama, OpenAI), as a separate `system` parameter
     (Anthropic) or as a `system_instruction` (Gemini). The interface states
     the role; each adapter maps it to its provider's mechanism.
+
+    Every call states how long its reply may be (`max_tokens`; Ollama's
+    `num_predict`, the APIs' `max_tokens`). A reply cut at that length is a
+    `ProviderError`, so a reply that does not stop fails in seconds instead
+    of running until the time-out, and a cut reply is never shown as whole.
     """
 
-    def chat(self, messages: Sequence[ChatMessage]) -> str:
-        """The model's reply: never empty (an empty reply is a `ProviderError`)."""
+    def chat(self, messages: Sequence[ChatMessage], *, max_tokens: int) -> str:
+        """The model's reply: never empty and never cut (either is a `ProviderError`)."""
         ...
 
-    def chat_structured[M: BaseModel](self, messages: Sequence[ChatMessage], schema: type[M]) -> M:
+    def chat_structured[M: BaseModel](
+        self, messages: Sequence[ChatMessage], schema: type[M], *, max_tokens: int
+    ) -> M:
         """The model's reply as an instance of `schema`, for decisions such as verdicts.
 
         Asked as repeatably as the provider allows (temperature 0): the same

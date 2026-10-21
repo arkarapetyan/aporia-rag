@@ -226,7 +226,7 @@ def test_builds_an_ollama_chat_model_from_the_settings() -> None:  # 14.9
     )
 
     model = build_chat_model(settings, transport=server.transport)
-    reply = model.chat([ChatMessage(role="user", content="What is virtue?")])
+    reply = model.chat([ChatMessage(role="user", content="What is virtue?")], max_tokens=64)
 
     assert isinstance(model, OllamaChatModel)
     assert reply == "Virtue is a mean [1]."

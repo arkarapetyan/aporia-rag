@@ -587,6 +587,8 @@ on every request.
 | 18.8 | A structured reply that does not fit the schema raises `ProviderError` naming the schema; failures are translated as for `chat` |
 | 18.9 | Every request sets the configured context length (`num_ctx`), the same for `chat` and `chat_structured`: Ollama reloads a model whose context length changes |
 | 18.10 | A JSON schema that Ollama cannot turn into a grammar is a `ProviderError` with Ollama's reason. `FakeOllamaServer` rejects what Ollama rejects (a regex `pattern` not anchored with `^...$`): the first live run of the rewriter failed that way while every fake test passed (2026-10-20) |
+| 18.11 | Every request sends the caller's reply cap (`max_tokens`) as Ollama's `num_predict`, for `chat` and `chat_structured` |
+| 18.12 | A reply that Ollama cuts at the cap (`done_reason` "length") is a `ProviderError` that names the model and the cap, for `chat` and `chat_structured`: a reply that does not stop fails in seconds, not at the 120 s time-out (found 2026-10-21: a one-field rewrite ran on until the time-out). `FakeOllamaServer` cuts a reply longer than `num_predict`, a word for a token, and says so, as Ollama does |
 
 ## Component 19: Generator (`aporia_rag.generation.generator`)
 
@@ -595,6 +597,7 @@ on every request.
 | 19.1 | The model receives the system prompt, then one user message: the passages numbered from 1 in the order given, each headed by its citation and followed by its exact text, and the question last |
 | 19.2 | The answer is the model's reply, with the passages as its sources, in the order of their numbers |
 | 19.3 | `survey` sends the same user message with the survey prompt as a structured request for exactly one paragraph per passage, and returns one section per passage, headed by the passage's author and number (`Immanuel Kant [2]`), with the passages as its sources |
+| 19.4 | The generator caps an answer at 1,024 tokens (the longest so far: about 550) and a survey at 256 tokens per passage |
 
 ## Component 20: `ask` command (`aporia_rag.cli`)
 
@@ -632,6 +635,7 @@ keeps every prompt short and every verdict independent of the other passages.
 | 21.1 | Each passage is graded in its own call: the grading system prompt, then one user message with the passage's citation, its exact text and the question last, asking for a `RelevanceVerdict` |
 | 21.2 | `relevant` returns the passages judged relevant, in their original order |
 | 21.3 | `is_relevant` grades one passage in one call and returns the model's verdict (component 23 measures the grader through it) |
+| 21.4 | The grader caps a verdict at 16 tokens (`{"relevant": false}` is about 6) |
 
 **Questions with several parts (2026-10-20).** Component 23 found one systematic error: the grader
 dropped passages that answer one part of a question with several parts, or one side of a
@@ -764,6 +768,7 @@ composition root that builds it (A.1).
 | 24.2 | `per_author` makes one structured call for the subject of a comparison (the question, then the authors compared) and returns, for each author in the order given, "What does <author> say about <subject>?"; a question mark or full stop that ends the subject is dropped |
 | 24.3 | A blank query, author or subject does not fit the reply schema (so an adapter reports it as a `ProviderError`, as in 18.8), and the JSON schema sent to the model is a plain string, with no regex pattern (18.10) |
 | 24.4 | The rewrite's reply schema asks for the author before the query, so the model chooses whose words to use and then writes the query in them (measured 2026-10-21: gold evidence in the top 5 for 7 of 8 questions, against 4 of 8 with the query first; see "The web fallback") |
+| 24.5 | The rewriter caps a rewrite at 64 tokens (2026-10-21's: 10 to 25) and a comparison's subject at 32 |
 
 ## Component 25: Corrective graph (`aporia_rag.graph`)
 
@@ -873,6 +878,45 @@ each verdict is the model reading its prompt (a repeated prompt, served from Oll
 | 27.1 | Grading follows the order found and stops once 2 passages are kept; the passages after them are not graded, and the outcome lists them as not graded, in the order found; the answer comes from the 2 kept |
 | 27.2 | The early stop also holds for web pages |
 | 27.3 | A survey grades every author's passage, however many are kept |
+
+## Checking the answer: component 28
+
+The corrective loop decides which passages the model gets; nothing yet checks what the model then
+writes. Three errors were read in live answers, each with the right passages in hand:
+
+- **A view given to the wrong author** (2026-10-20): "Plato argues that no ills affecting a
+  person's body or property can be worse than those affecting the soul [1]", where [1] is
+  Cicero's. Both passages said the soul matters more than the body; the paragraph was about Plato.
+- **A reported view given as the author's own** (2026-10-21): "the passage concludes that…" for
+  "As their concluding argument, they add…" (Cicero III#118, his opponents speaking; who "they"
+  are is in the chunk before).
+- **Quotes not word for word** (2026-10-21): "to get themselves out from that miserable condition
+  of Warre" for "of getting themselves out…", and "natural Passions" for "naturall Passions".
+
+Two layers, the free one first:
+
+- **Layer 1, plain code, every answer:** every quotation must occur word for word in a passage
+  its sentence cites, and a sentence that cites passages and names corpus authors must name the
+  author of one of them. It catches the first and third errors, not the second.
+- **Layer 2, the chat model, only if measured worth it:** "does passage [n] state this, as its
+  author's own view?" for every cited sentence.
+
+**Measured before either is wired into `ask`** (`data/eval/answers_c28.py`): the 49 gold questions
+answered by the graph, saved with their passages, layer 1 run on every answer, and 15 answers read
+claim by claim. Rules fixed before the run: if layer 1 flags at least 5 of the 49 answers, `ask`
+writes the answer once more with the problems listed (one more call, only then); with fewer, it
+prints them under the answer. Layer 2 is built only if the reading finds errors layer 1 cannot see
+in at least 3 of the 15 answers.
+
+## Component 28: Citation checks (`aporia_rag.grading.citations`)
+
+| # | Test |
+|---|---|
+| 28.1 | A quotation (in straight or curly double quotes) that occurs word for word in a passage its sentence cites passes; one that does not is a quote problem naming it. Case, spaces, line breaks, curly apostrophes and punctuation at the quote's ends do not count |
+| 28.2 | A quotation in a sentence that cites no passage must occur in one of the answer's passages |
+| 28.3 | A quotation with an ellipsis ("..." or "…") or an editor's change in brackets ("destroy[s] itself") passes when every part of it outside them occurs in the same cited passage |
+| 28.4 | A sentence that cites passages and names corpus authors must name the author of a passage it cites: "Plato argues … [1]" with [1] Cicero's is an author problem; "Cicero answers Hobbes [1]" with [1] Cicero's is not |
+| 28.5 | Citations are read per sentence, as "[1]", "[1][3]" or "[1, 3]"; a number with no passage is a citation problem |
 
 ## Architecture rules (`tests/unit/test_architecture.py`, run in the default suite)
 

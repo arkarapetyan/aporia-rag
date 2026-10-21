@@ -65,6 +65,10 @@ def _not_blank(text: str) -> str:
 # unanchored regex `pattern` into a grammar and refuses the request (found live, 2026-10-20).
 _NonBlank = Annotated[str, AfterValidator(_not_blank)]
 
+# Reply caps: the rewrites of 2026-10-21 took 10 to 25 tokens, a subject a handful.
+REWRITE_MAX_TOKENS: Final = 64
+SUBJECT_MAX_TOKENS: Final = 32
+
 SUBJECT_PROMPT: Final = """\
 You find the subject of a question that compares philosophers.
 
@@ -101,7 +105,7 @@ class QueryRewriter:
             ChatMessage(role="system", content=_rewrite_prompt(authors)),
             ChatMessage(role="user", content=f"Question: {question}"),
         ]
-        reply = self._model.chat_structured(messages, RewrittenQuery)
+        reply = self._model.chat_structured(messages, RewrittenQuery, max_tokens=REWRITE_MAX_TOKENS)
         return RewrittenQuery(query=reply.query.strip(), author=reply.author.strip())
 
     def per_author(self, question: str, authors: Sequence[str]) -> list[str]:
@@ -113,7 +117,9 @@ class QueryRewriter:
                 content=f"Question: {question}\nAuthors compared: {', '.join(authors)}",
             ),
         ]
-        reply = self._model.chat_structured(messages, ComparisonSubject)
+        reply = self._model.chat_structured(
+            messages, ComparisonSubject, max_tokens=SUBJECT_MAX_TOKENS
+        )
         subject = reply.subject.strip().rstrip("?.").strip()
         return [f"What does {author} say about {subject}?" for author in authors]
 

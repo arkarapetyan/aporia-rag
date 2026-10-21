@@ -1,4 +1,4 @@
-"""Tests for aporia_rag.generation.generator (test plan: 19.1-19.3).
+"""Tests for aporia_rag.generation.generator (test plan: 19.1-19.4).
 
 The chat model is a `ScriptedChatModel`, so each test sees exactly what the
 model was sent and decides what it answers.
@@ -77,3 +77,13 @@ def test_a_survey_has_one_section_per_passage_headed_by_its_author_and_number() 
         text="Thomas Hobbes [1]\nWar of all.\n\nImmanuel Kant [2]\nA good will.",
         sources=(HOBBES, KANT),
     )
+
+
+def test_an_answer_and_a_survey_have_a_reply_cap() -> None:  # 19.4
+    model = ScriptedChatModel(structured_reply=lambda prompt: '{"paragraphs": ["One.", "Two."]}')
+    generator = Generator(model)
+
+    generator.answer(QUESTION, [KANT, HOBBES])
+    generator.survey(QUESTION, [KANT, HOBBES])
+
+    assert model.max_tokens == [1024, 2 * 256]

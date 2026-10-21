@@ -195,14 +195,19 @@ class ScriptedChatModel:
         self.structured_reply = structured_reply
         self.conversations: list[list[ChatMessage]] = []
         self.schemas: list[type[BaseModel]] = []
+        self.max_tokens: list[int] = []  # the reply cap of every call, in order
 
-    def chat(self, messages: Sequence[ChatMessage]) -> str:
+    def chat(self, messages: Sequence[ChatMessage], *, max_tokens: int) -> str:
         self.conversations.append(list(messages))
+        self.max_tokens.append(max_tokens)
         return self.reply
 
-    def chat_structured[M: BaseModel](self, messages: Sequence[ChatMessage], schema: type[M]) -> M:
+    def chat_structured[M: BaseModel](
+        self, messages: Sequence[ChatMessage], schema: type[M], *, max_tokens: int
+    ) -> M:
         self.conversations.append(list(messages))
         self.schemas.append(schema)
+        self.max_tokens.append(max_tokens)
         return schema.model_validate_json(self.structured_reply(messages[-1].content))
 
 
@@ -286,8 +291,15 @@ class FakeOllamaServer:
             content = self.structured_reply(body["messages"][-1]["content"])
         else:
             content = self.reply
+        # Like Ollama, stop at `num_predict` and say so; here a word stands for a token.
+        cap = body.get("options", {}).get("num_predict")
+        words = content.split()
+        done_reason = "stop"
+        if cap is not None and len(words) > cap:
+            content, done_reason = " ".join(words[:cap]), "length"
         message = {"role": "assistant", "content": content}
-        return httpx.Response(200, json={"model": body["model"], "message": message, "done": True})
+        response = {"model": body["model"], "message": message, "done": True}
+        return httpx.Response(200, json={**response, "done_reason": done_reason})
 
 
 def ungrammatical(schema: object) -> str | None:

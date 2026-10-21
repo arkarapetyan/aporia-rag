@@ -427,6 +427,33 @@ and its nodes call the same components the CLI used, so they are tested with the
 fakes. LangGraph brings `langchain-core` as a dependency; nothing in the project uses LangChain's
 retrieval or model wrappers.
 
+## Checking the answer
+
+**Every reply has a cap.** Every call to the chat model states how long its reply may be
+(`max_tokens`: Ollama's `num_predict`, the APIs' `max_tokens`): a verdict 16 tokens, a rewrite 64,
+an answer 1,024, a survey 256 per passage, each well above the longest seen. A reply cut at its cap
+is a `ProviderError`, so a reply that does not stop fails in seconds; one did on 2026-10-21 (a
+rewrite with a one-field reply ran on until the 120 s time-out). A cut answer is never shown as
+whole.
+
+**The right passages are not yet a right answer.** The corrective loop decides what the model
+reads; nothing in it checks what the model then writes. Read claim by claim, live answers went
+wrong with the right passages in hand: Cicero's view given to Plato because both passages ranked
+the soul above the body and the paragraph was about Plato; an opponents' argument that Cicero
+reports ("As their concluding argument, they add...") given as the passage's conclusion, the
+speaker being named only in the chunk before; and quotations not word for word ("to get themselves
+out" for "of getting themselves out", "natural" for Hobbes's "naturall"). The answer prompt asks
+for all three, and a prompt rule is a tendency, not a guarantee.
+
+**Plain code first** (`grading.citations`): every quotation must occur word for word in a passage
+its sentence cites (an ellipsis or an editor's "[s]" marks a gap), and a sentence that cites
+passages and names corpus authors must name the author of one of them ("Cicero answers Hobbes [1]"
+passes). Run on the 7 answers saved before it existed, it flagged Cicero-as-Plato, both Hobbes
+quotations and a scare-quoted "expediency" the passages do not contain, and nothing else; the
+reported-argument error is beyond it. The check reaches the corpus's authors through a function it
+is given, since `grading` does not import `retrieval`. Whether `ask` regenerates or warns, and
+whether a model check (layer 2) is worth its calls, is decided on 49 answers measured first.
+
 ## Evaluation
 
 **Judge retrieval on a gold set, not on single queries.** `evaluation/gold_retrieval.toml` holds

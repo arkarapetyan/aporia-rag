@@ -38,6 +38,9 @@ about, even in part.
 - Reply false if the passage only uses some of the same words, or is about another subject."""
 
 
+MAX_TOKENS: Final = 16  # a verdict, `{"relevant": false}`, is about 6
+
+
 class RelevanceVerdict(BaseModel):
     """The structured reply the grader asks for."""
 
@@ -66,4 +69,5 @@ class RelevanceGrader:
                 ),
             ),
         ]
-        return self._model.chat_structured(messages, RelevanceVerdict).relevant
+        verdict = self._model.chat_structured(messages, RelevanceVerdict, max_tokens=MAX_TOKENS)
+        return verdict.relevant
