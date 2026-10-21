@@ -831,7 +831,7 @@ def test_ask_reports_how_long_retrieval_and_generation_took(
     monkeypatch.setattr("aporia_rag.graph.corrective.perf_counter", lambda: next(stages))
 
     exit_code = _run(
-        "ask", GOOD_WILL_QUESTION,
+        "ask", GOOD_WILL_QUESTION, "--others",
         manifest=index_manifest, settings=settings, transport=server.transport,
     )  # fmt: skip
 
@@ -954,7 +954,7 @@ def test_ask_lists_the_other_authors_who_discuss_the_question(
     capsys.readouterr()
 
     exit_code = _run(
-        "ask", GOOD_WILL_QUESTION, "-k", "1",  # retrieves Kant only
+        "ask", GOOD_WILL_QUESTION, "-k", "1", "--others",  # retrieves Kant only
         manifest=index_manifest, settings=settings, transport=server.transport,
     )  # fmt: skip
 
@@ -1147,7 +1147,7 @@ def test_ask_answers_from_the_web_when_the_author_is_outside_the_corpus(
     web = ScriptedWebSearch([PAGE])
 
     exit_code = _run(
-        "ask", GOOD_WILL_QUESTION, "-k", "1",  # finds Kant first, who is not kept
+        "ask", GOOD_WILL_QUESTION, "-k", "1", "--others",  # finds Kant first, not kept
         manifest=index_manifest, settings=settings, transport=server.transport, web=web,
     )  # fmt: skip
 
@@ -1161,8 +1161,8 @@ def test_ask_answers_from_the_web_when_the_author_is_outside_the_corpus(
     ]
     output = capsys.readouterr().out
     assert output.startswith(
-        f"Nothing relevant was found, and the author most likely to answer, {OUTSIDE}, "
-        "is not in the corpus, so the web was searched.\n\n"
+        "Nothing relevant was found, and the rewriter named no author in the corpus "
+        f'("{OUTSIDE}"), so the web was searched.\n\n'
         f"{REPLY}\n\nWeb sources:\n"
         "[1] en.wikipedia.org, Language game (https://en.wikipedia.org/wiki/Language_game)\n\n"
         f"{KANT_LEFT_OUT}"
@@ -1186,16 +1186,57 @@ def test_ask_says_why_when_the_web_search_fails(
     web = ScriptedWebSearch(failure=ProviderError("ddgs: 202 Ratelimit"))
 
     exit_code = _run(
-        "ask", GOOD_WILL_QUESTION, "-k", "1",  # Kant only: Hobbes would be another author
+        "ask", GOOD_WILL_QUESTION, "-k", "1", "--others",  # Kant only: Hobbes is another
         manifest=index_manifest, settings=settings, transport=server.transport, web=web,
     )  # fmt: skip
 
     assert exit_code == 0
     assert capsys.readouterr().out.startswith(
-        f"Nothing relevant was found, and the author most likely to answer, {OUTSIDE}, "
-        "is not in the corpus, so the web was searched; the search failed "
-        "(ddgs: 202 Ratelimit).\n\n"
+        "Nothing relevant was found, and the rewriter named no author in the corpus "
+        f'("{OUTSIDE}"), so the web was searched; the search failed (ddgs: 202 Ratelimit).\n\n'
         "The one passage found does not answer this question.\n\n"
         f"{KANT_LEFT_OUT}\n"
     )
     assert len(server.structured_requests) == 2  # Kant's verdict and the rewrite: nothing else
+
+
+def test_ask_looks_for_other_authors_only_when_asked(
+    index_manifest: Path, settings: Settings, capsys: pytest.CaptureFixture[str]
+) -> None:  # 20.17
+    server = FakeOllamaServer()  # everything is relevant: Hobbes would be listed
+    _index(index_manifest, settings, server)
+    capsys.readouterr()
+
+    exit_code = _run(
+        "ask", GOOD_WILL_QUESTION, "-k", "1",  # retrieves Kant only
+        manifest=index_manifest, settings=settings, transport=server.transport,
+    )  # fmt: skip
+
+    assert exit_code == 0
+    assert len(server.structured_requests) == 1  # the Kant passage only
+    output = capsys.readouterr().out
+    assert "Other authors" not in output
+    assert "other authors" not in output.rsplit("\nanswered in ", 1)[1]
+
+
+def test_ask_lists_the_passages_it_did_not_grade(
+    index_manifest: Path, settings: Settings, capsys: pytest.CaptureFixture[str]
+) -> None:  # 20.18
+    server = FakeOllamaServer(reply=REPLY)  # everything is relevant
+    _index(index_manifest, settings, server)
+    capsys.readouterr()
+
+    exit_code = _run(
+        "ask", GOOD_WILL_QUESTION, "-k", "3",  # Kant's first section, Hobbes, Kant's second
+        manifest=index_manifest, settings=settings, transport=server.transport,
+    )  # fmt: skip
+
+    assert exit_code == 0
+    assert len(server.structured_requests) == 2  # 2 kept: the third is not graded
+    output = capsys.readouterr().out
+    assert len(_passage_headers(output.split("\n\nNot graded", 1)[0])) == 2
+    assert (
+        "\nNot graded, as 2 relevant passages came first:\n"
+        "- Immanuel Kant, Fundamental Principles of the Metaphysic of Morals, Second Section "
+        "(kant-groundwork/second-section#0)\n"
+    ) in output

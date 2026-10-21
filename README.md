@@ -88,6 +88,7 @@ uv run aporia-rag search "Is anything good without qualification?" -k 5
 uv run aporia-rag search "What is justice?" --author plato
 uv run aporia-rag ask "Is anything good without qualification?"
 uv run aporia-rag ask "What is friendship?" --all-authors
+uv run aporia-rag ask "Is lying ever right?" --others   # ...and the other authors who discuss it
 uv run aporia-rag ask "How do Kant and Mill differ on lying?"
 uv run aporia-rag evaluate        # Hit@k and MRR of retrieval on 40 gold questions
 uv run aporia-rag evaluate --grade  # ...and the relevance grader against the gold set
@@ -99,9 +100,10 @@ make help                         # list all targets
 
 `index` only embeds what is new or changed, so running it again is cheap; `index --rebuild`
 starts over. `search` shows what retrieval alone finds, with similarity scores and citations.
-`ask` keeps the passages the chat model judges relevant and has it answer from them, citing them as
-`[1]`, `[2]`...; under the answer it lists the passages used, the ones left out as not relevant, the
-other authors in the corpus who discuss the question, and the time each step took. When no passage
+`ask` grades the passages in the order found, stops once 2 are relevant, and has the chat model
+answer from those, citing them as `[1]`, `[2]`...; under the answer it lists the passages used, the
+ones left out as not relevant, the ones not graded, and the time each step took (`ask --others`
+also lists the other authors in the corpus who discuss the question). When no passage
 is relevant, it rewrites the question once into the corpus's vocabulary, says so, and searches
 again; if nothing is relevant then either, or the author most likely to answer is not in the corpus
 (Wittgenstein, say), it searches the web and grades the pages like passages, listing the answer's

@@ -43,7 +43,7 @@ from aporia_rag.evaluation.retrieval import (
     mean_reciprocal_rank,
     write_retrievals,
 )
-from aporia_rag.graph.corrective import Outcome, Scope
+from aporia_rag.graph.corrective import ENOUGH, Outcome, Scope
 from aporia_rag.graph.corrective import search as search_in_scope
 from aporia_rag.indexing.indexer import WorkProgress
 from aporia_rag.ingestion.corpus import WorkSpec, load_manifest
@@ -157,6 +157,13 @@ def _parser() -> argparse.ArgumentParser:
         ),
     )
     _add_question_options(ask)
+    ask.add_argument(
+        "--others",
+        action="store_true",
+        help="after the answer, also grade the best passage of up to "
+        f"{_OTHER_AUTHORS} other authors and list those who discuss the question (one model "
+        "call each; only when the question names no author)",
+    )
     ask.set_defaults(run=_ask)
 
     evaluate = commands.add_parser(
@@ -393,27 +400,30 @@ def _ask(args: argparse.Namespace, container: Container) -> int:
             print(f"[{number}] {_label(source)}")
     else:
         print(_nothing_answers(len(outcome.graded)))
-    if outcome.left_out:
-        print("\nLeft out as not relevant:")
-        for passage in outcome.left_out:
-            print(f"- {_label(passage)}")
+    _print_passages("Left out as not relevant:", outcome.left_out)
+    _print_passages(f"Not graded, as {ENOUGH} relevant passages came first:", outcome.skipped)
     stages = [
         f"{stage} {outcome.seconds[stage]:.1f}s" for stage in _STAGES if stage in outcome.seconds
     ]
     done = perf_counter()
-    # Other authors are worth the wait (one verdict each) only next to an answer from the
-    # corpus; when the corpus has none, the graph has searched the web.
-    if scope.unrestricted and not outcome.web:
+    # Asked for, and only next to an answer from the corpus: when the corpus has none, the
+    # graph has searched the web.
+    if args.others and scope.unrestricted and not outcome.web:
         answered = done
         others = _other_authors(args.question, container, works, outcome.graded)
-        if others:
-            print("\nOther authors who discuss this:")
-            for passage in others:
-                print(f"- {_label(passage)}")
+        _print_passages("Other authors who discuss this:", others)
         done = perf_counter()
         stages.append(f"other authors {done - answered:.1f}s")
     print(f"\nanswered in {done - started:.1f}s ({', '.join(stages)})")
     return 0
+
+
+def _print_passages(heading: str, passages: Sequence[RetrievedChunk]) -> None:
+    """`heading`, then one line per passage, after a blank line; nothing when there are none."""
+    if passages:
+        print(f"\n{heading}")
+        for passage in passages:
+            print(f"- {_label(passage)}")
 
 
 def _nothing_answers(graded: int) -> str:
@@ -425,8 +435,8 @@ def _nothing_answers(graded: int) -> str:
 def _why_the_web(outcome: Outcome) -> str:
     if outcome.outside_author is not None:
         why = (
-            f"Nothing relevant was found, and the author most likely to answer, "
-            f"{outcome.outside_author}, is not in the corpus"
+            "Nothing relevant was found, and the rewriter named no author in the corpus "
+            f'("{outcome.outside_author}")'
         )
     else:
         why = "Nothing relevant was found again"

@@ -1,4 +1,4 @@
-"""Tests for aporia_rag.graph.corrective, the corrective loop (test plan: 25.1-25.7, 26.4-26.8).
+"""Tests for aporia_rag.graph.corrective, the corrective loop (test plan: 25.1-25.7, 26.4-26.8, 27).
 
 The graph runs the real retriever, grader, generator and rewriter over
 in-memory fakes: the hashing embedder ranks passages by the words they share
@@ -60,7 +60,20 @@ PAGE = web_passage(
     title="Original position",
     text="Behind a veil of ignorance, no one knows their place in society.",
 )
-CHUNKS = (KANT, LAW, HOBBES, MILL, PAGE)
+PAGES = (
+    PAGE,
+    web_passage(
+        url="https://plato.stanford.edu/entries/original-position/",
+        title="Original position",
+        text="Rawls asks which principles people would choose behind the veil.",
+    ),
+    web_passage(
+        url="https://www.britannica.com/topic/veil-of-ignorance",
+        title="Veil of ignorance",
+        text="The veil of ignorance is a device for thinking about justice.",
+    ),
+)
+CHUNKS = (KANT, LAW, HOBBES, MILL, *PAGES)
 AUTHORS = ("Immanuel Kant", "John Stuart Mill", "Thomas Hobbes")
 GOOD_WILL = "What can be called good without qualification?"  # finds KANT first
 REPLY = "The scripted answer [1]."
@@ -95,6 +108,7 @@ class Setup:
     model: ScriptedChatModel
     embedder: HashingEmbedder
     web: ScriptedWebSearch
+    retriever: Retriever
 
     def answer(self, question: str, scope: Scope | None = None, *, k: int = 1) -> Outcome:
         return self.graph.answer(question, scope or Scope(), k=k, authors=AUTHORS)
@@ -133,14 +147,11 @@ def _setup(script: Script, web: ScriptedWebSearch | None = None) -> Setup:
         ]
     )
     model = ScriptedChatModel(reply=REPLY, structured_reply=script.reply)
+    retriever = Retriever(embedder, store)
     graph = CorrectiveRAG(
-        Retriever(embedder, store),
-        RelevanceGrader(model),
-        Generator(model),
-        QueryRewriter(model),
-        web,
+        retriever, RelevanceGrader(model), Generator(model), QueryRewriter(model), web
     )
-    return Setup(graph, model, embedder, web)
+    return Setup(graph, model, embedder, web, retriever)
 
 
 def _chunks(passages: Sequence[RetrievedChunk]) -> list[str]:
@@ -384,3 +395,39 @@ def test_the_web_search_is_timed_as_a_stage_of_its_own(
         "web search": 1.25,
         "generation": 4.0,
     }
+
+
+def test_grading_stops_once_two_passages_are_kept() -> None:  # 27.1
+    setup = _setup(Script())  # keeps every passage it grades
+
+    outcome = setup.answer(GOOD_WILL, k=3)
+
+    assert setup.calls() == ["verdict", "verdict", "answer"]
+    found = setup.retriever.search(GOOD_WILL, k=3)
+    assert _chunks(outcome.graded) == _chunks(outcome.relevant) == _chunks(found[:2])
+    assert _chunks(outcome.skipped) == _chunks(found[2:])
+    assert outcome.answer is not None
+    assert _chunks(outcome.answer.sources) == _chunks(found[:2])
+    assert outcome.left_out == ()
+
+
+def test_the_early_stop_holds_for_web_pages() -> None:  # 27.2
+    setup = _setup(
+        Script(keep=lambda chunk: chunk in PAGES, author=OUTSIDE), ScriptedWebSearch(PAGES)
+    )
+
+    outcome = setup.answer(GOOD_WILL, k=3)  # 3 corpus passages, none kept: 3 web pages
+
+    assert setup.calls() == ["verdict"] * 3 + ["rewrite"] + ["verdict"] * 2 + ["answer"]
+    assert _chunks(outcome.relevant) == _ids(PAGES[:2])
+    assert _chunks(outcome.skipped) == _ids(PAGES[2:])
+
+
+def test_a_survey_grades_every_authors_passage() -> None:  # 27.3
+    setup = _setup(Script())  # keeps every passage
+
+    outcome = setup.answer(GOOD_WILL, Scope(survey=AUTHORS))
+
+    assert setup.calls() == ["verdict"] * 3 + ["survey"]
+    assert len(outcome.relevant) == 3
+    assert outcome.skipped == ()

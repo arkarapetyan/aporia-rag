@@ -383,6 +383,30 @@ about a work outside the corpus (Plato's *Lysis*) still pays for the second sear
 survey never goes to the web, since its form is one section per corpus author, and a web search that
 fails (offline, a rate limit) ends without an answer and says why, keeping what was graded.
 
+Live (2026-10-21), the model read the author field as "which listed author, if any": "None of the
+listed authors" for Wittgenstein (to the web at once: an answer from Wikipedia in 21.5 s, where
+2026-10-20 had none in 21.7 s), John Stuart Mill for the veil of ignorance (one more corpus search,
+then a web answer). That bias is the safe one: a wrong "none" would skip an answer the corpus may
+hold; a wrong corpus author costs about 3 s. The field also changed the queries, which the
+measurements of 2026-10-20 had not: with `query` as the only field, the model, told to name the
+author, had kept writing the query instead of starting a field it was not given (the Cicero query
+of 2026-10-20 is that of 2026-10-21, "Is it ever expedient to do injustice?", with 17 more words).
+A reply schema steers a model as its prompt does, so a schema change is measured like a prompt
+change. Questions about a work's details stay hard: for Plato's *Lysis* the web found Wikipedia's
+article and four more pages, and the grader left out all five.
+
+**Faster answers (2026-10-21).** Grading is most of the wait: 5 verdicts take about 7 s, and about
+half of each is the model reading its prompt (repeated prompts, served from Ollama's cache, took
+2.5-3.5 s for the same 5). Measured on the laptop before choosing (`data/eval/spike_grading_speed.py`):
+5 verdicts at once took as long as 5 in a row (with 73% of the model on the CPU, compute is the
+limit), and one call for all 5 passages, 3.9 s, lost recall (0.84) and changed 37 of 245 verdicts.
+What was chosen: grading in the order found stops once 2 passages are kept (35% fewer verdicts on
+the 40 retrieval questions' saved verdicts, none left unanswered; answers draw on fewer passages),
+and the search for other authors, 6.5 s after every corpus answer, runs only with `ask --others`.
+A survey still grades every author's passage. The spike's first summary had concurrency passing:
+its rotation ran the concurrent calls second, on cached prompts, for 2 of every 3 questions. An
+order effect needs a balanced design or a comparison of first runs only.
+
 **Comparisons per author.** Asked "How do Kant and Mill differ on lying?", the grader left out every
 passage, even Kant's and Mill's own on lying; asked "What does Immanuel Kant say about lying?" and
 the same of Mill, it kept each side and still left out Mill on dissent (3 of 3; two plain-code

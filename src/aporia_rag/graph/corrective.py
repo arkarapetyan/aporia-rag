@@ -18,8 +18,9 @@ way. When even they do not answer, the outcome says so.
 
 Where the model calls go (measured on 2026-10-20, see `retrieval.rewriter`):
 
-- Normal path, a passage is kept: one verdict per passage and one answer.
-  Nothing else: the loop costs nothing when it is not needed.
+- Normal path, a passage is kept: a verdict per passage, in the order found,
+  until ENOUGH are kept, then one answer. Nothing else: the loop costs
+  nothing when it is not needed.
 - Loop path, nothing kept: one rewrite, which also names the author most
   likely to answer. A corpus author: one more search with the same `k` and
   author filter, a verdict for each passage not graded yet, and, if nothing
@@ -30,6 +31,14 @@ Where the model calls go (measured on 2026-10-20, see `retrieval.rewriter`):
   comparison, then each author's best passage, found and graded with that
   author's own question. A survey (all authors, or a comparison) is never
   rewritten and never goes to the web: its form is one section per author.
+
+Grading stops once ENOUGH passages are kept (2026-10-21): about half of a
+verdict is the model reading its prompt, and grading is most of the wait. On
+the saved verdicts of the 40 retrieval questions, stopping at 2 makes 35%
+fewer verdicts and leaves no question unanswered; answers draw on fewer
+passages. The stop never changes whether the loop starts, since it comes
+only after a kept passage. A survey grades every author's passage: each is
+a section of its own.
 
 LangGraph states the loop as nodes and conditional edges, so the web
 fallback is one node and three edges. It is the only package that uses it.
@@ -58,6 +67,8 @@ _GRADE: Final = "grade"
 _REWRITE: Final = "rewrite"
 _WEB_SEARCH: Final = "web_search"
 _GENERATE: Final = "generate"
+
+ENOUGH: Final = 2  # relevant passages after which grading stops (not in a survey)
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,8 +105,9 @@ class Outcome:
     answer: Answer | None  # None: no passage found answers the question
     graded: tuple[RetrievedChunk, ...]  # every passage graded, in the order found
     relevant: tuple[RetrievedChunk, ...]  # those judged relevant: the answer's sources
+    skipped: tuple[RetrievedChunk, ...] = ()  # found, not graded: ENOUGH relevant came first
     query: str | None = None  # the rewritten query, when the corpus was searched again with it
-    outside_author: str | None = None  # the author most likely to answer, if not in the corpus
+    outside_author: str | None = None  # what the rewriter named, when no author in the corpus
     web: bool = False  # the web was searched: the answer's sources, if any, are web pages
     web_error: str | None = None  # why the web search failed, if it did
     author_questions: tuple[str, ...] = ()  # a comparison: the question asked of each author
@@ -120,6 +132,7 @@ class _State(TypedDict, total=False):
     found: list[RetrievedChunk]  # the latest search's passages
     graded: list[RetrievedChunk]
     relevant: list[RetrievedChunk]
+    skipped: list[RetrievedChunk]
     answer: Answer | None
     seconds: dict[str, float]
 
@@ -156,6 +169,7 @@ class CorrectiveRAG:
             "web_error": None,
             "graded": [],
             "relevant": [],
+            "skipped": [],
             "answer": None,
             "seconds": {},
         }
@@ -164,6 +178,7 @@ class CorrectiveRAG:
             answer=end["answer"],
             graded=tuple(end["graded"]),
             relevant=tuple(end["relevant"]),
+            skipped=tuple(end["skipped"]),
             query=end["query"],
             outside_author=end["outside_author"],
             web=end["web"],
@@ -240,16 +255,19 @@ class CorrectiveRAG:
         seen = {passage.chunk.id for passage in state["graded"]}
         new = [passage for passage in state["found"] if passage.chunk.id not in seen]
         asked = state["author_questions"]
-        kept = [
-            passage
-            for passage in new
-            if self._grader.is_relevant(
-                asked.get(passage.chunk.metadata.author, state["question"]), passage
-            )
-        ]
+        relevant = list(state["relevant"])
+        graded = 0
+        for passage in new:
+            if len(relevant) >= ENOUGH and not state["scope"].survey:
+                break
+            graded += 1
+            question = asked.get(passage.chunk.metadata.author, state["question"])
+            if self._grader.is_relevant(question, passage):
+                relevant.append(passage)
         return {
-            "graded": [*state["graded"], *new],
-            "relevant": [*state["relevant"], *kept],
+            "graded": [*state["graded"], *new[:graded]],
+            "relevant": relevant,
+            "skipped": [*state["skipped"], *new[graded:]],
             "seconds": _add(state, "grading", started),
         }
 

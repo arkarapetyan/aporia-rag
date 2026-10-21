@@ -7,7 +7,8 @@ the top 5 although the corpus answers them. Measured before this was built
 (2026-10-20, data/eval/spike_rewrites.py): the chat model's rewrites, in the
 vocabulary of the author most likely to answer, put gold evidence in the top
 5 for all 3 retrieval questions that fail, in 1.5-1.9 s per rewrite. The
-prompt below is the one that was measured.
+prompt below is the one that was measured, with a reply of one field (see
+below for what the second field changed).
 
 A comparison fails differently. Asked "How do Kant and Mill differ on
 lying?", the grader leaves out every passage, even those on lying; asked
@@ -20,12 +21,21 @@ The query is for the search only: verdicts and answers are always about the
 reader's question.
 
 The reply also names the author most likely to answer (2026-10-21), so the
-graph can tell a question for an author outside the corpus (Wittgenstein,
-Rawls) from one the corpus may still answer, with no call of its own. The
-prompt already asked for that author ("Name that author."), and the 2026-10-20
-Wittgenstein rewrite wrote "author: Ludwig Wittgenstein" into its query. The
-model writes the reply's fields in the schema's order, so the query, asked
-for first, is still written under the measured prompt.
+graph can send a question no corpus author answers straight to the web, with
+no call of its own. The prompt already asked for that author ("Name that
+author."). Live, the model reads the field as "which listed author, if any":
+"None of the listed authors" for Wittgenstein, John Stuart Mill for the veil
+of ignorance (Rawls's). That bias is the safe one: a wrong "none" would skip
+an answer the corpus may hold, while a wrong corpus author costs one more
+corpus search before the web.
+
+The second field changed the queries too. With `query` the only field, the
+model, told to name the author, could not start another field, so it kept
+writing the query: the 2026-10-20 Cicero query is the 2026-10-21 one ("Is it
+ever expedient to do injustice?") with more words after it, and the
+Wittgenstein query ended in "author: Ludwig Wittgenstein". A reply schema
+steers the model as its prompt does, so what the rewrites find is measured
+again with both fields (data/eval/spike_rewrites_2.py).
 """
 
 from collections.abc import Sequence
@@ -59,7 +69,7 @@ class RewrittenQuery(BaseModel):
     """The structured reply to a rewrite: the query first (see the module docstring)."""
 
     query: _NonBlank
-    author: _NonBlank  # the author most likely to answer, who may be outside the corpus
+    author: _NonBlank  # the author most likely to answer; "None of the listed authors", say
 
 
 class ComparisonSubject(BaseModel):

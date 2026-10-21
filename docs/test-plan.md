@@ -608,14 +608,16 @@ on every request.
 | 20.6 | `ask` ends with how long the answer took, split into rewriting (only when a question was rewritten), retrieval, grading, web search (only when it ran), generation and the search for other authors (a scripted clock makes the numbers exact) |
 | 20.7 | `ask` grades every retrieved passage: the model answers from the relevant ones only, numbered from 1, and the passages left out are listed as not relevant |
 | 20.8 | When no passage is relevant, even after the rewritten search (25.2) and the web search (26.5), `ask` says so, counting every passage graded, lists them all as left out (as when some are relevant), never asks the model for an answer, and does not look for other authors |
-| 20.9 | After the answer, `ask` grades the best passage of the other authors (those with no passage among the retrieved ones, at most 4) and lists the relevant ones as other authors who discuss the question |
+| 20.9 | With `--others`, after the answer, `ask` grades the best passage of the other authors (those with no passage among the passages found, graded or not, at most 4) and lists the relevant ones as other authors who discuss the question |
 | 20.10 | With `--author`, `ask` does not look for other authors |
 | 20.11 | `ask --all-authors` grades the best passage of every author, prints the survey of the relevant ones, lists the others as not relevant, and does not look for other authors (the question is embedded once) |
 | 20.12 | `ask` with one author named in the question answers from that author's passages only and does not look for other authors |
 | 20.13 | `ask` with two or more authors named in the question compares them: it prints the question it asked about each author on its own (25.6), and surveys the best relevant passage of each, one section per author, in the order of the names |
 | 20.14 | When the first search finds nothing relevant, `ask` says that it searched again and with which query, answers from what that search found, and lists the passages of both searches that it left out |
-| 20.15 | When the author most likely to answer is outside the corpus, `ask` says so and that it searched the web, prints the answer with its sources under "Web sources" (citation and URL), lists what it left out, and does not look for other authors |
+| 20.15 | When the rewriter names no author in the corpus, `ask` says so, quoting what it named, and that it searched the web, prints the answer with its sources under "Web sources" (citation and URL), lists what it left out, and does not look for other authors |
 | 20.16 | When the web search fails, `ask` says why, still lists the passages it left out, and exits with 0 |
+| 20.17 | Without `--others`, `ask` does not look for other authors: no verdict beyond those of the answer, and no "other authors" in the time report |
+| 20.18 | `ask` lists the passages it did not grade, because enough relevant ones came before them (27.1), after those it left out |
 
 ## Component 21: Relevance grader (`aporia_rag.grading.relevance`)
 
@@ -761,7 +763,7 @@ composition root that builds it (A.1).
 | 24.1 | `rewrite` makes one structured call: the rewriting prompt, which names every corpus author it is given, then the question; it returns the model's query and the author it names as most likely to answer (26.4), both without surrounding whitespace |
 | 24.2 | `per_author` makes one structured call for the subject of a comparison (the question, then the authors compared) and returns, for each author in the order given, "What does <author> say about <subject>?"; a question mark or full stop that ends the subject is dropped |
 | 24.3 | A blank query, author or subject does not fit the reply schema (so an adapter reports it as a `ProviderError`, as in 18.8), and the JSON schema sent to the model is a plain string, with no regex pattern (18.10) |
-| 24.4 | The rewrite's reply schema asks for the query before the author, so the model writes the query under the measured prompt exactly as in the spike, and names the author after it |
+| 24.4 | The rewrite's reply schema asks for the query before the author: the order the live tests and answers of 2026-10-21 ran with (a change of schema changes the queries, see "The web fallback") |
 
 ## Component 25: Corrective graph (`aporia_rag.graph`)
 
@@ -792,11 +794,18 @@ used to end with "none" after about 22 s: a rewrite, a second corpus search and 
   only when that finds nothing relevant either.
 - **Which author, with no extra call.** The rewriter's reply names the author most likely to
   answer, in a field of its own. The measured prompt already asks it to name that author, and the
-  Wittgenstein rewrite of 2026-10-20 wrote "author: Ludwig Wittgenstein" into its query. The field
-  comes after the query, so the query is still written as measured (24.4). Plain code
-  (`authors_named_in`) decides whether that author is in the corpus. A question about a work
+  Wittgenstein rewrite of 2026-10-20 wrote "author: Ludwig Wittgenstein" into its query. Plain
+  code (`authors_named_in`) decides whether that author is in the corpus. A question about a work
   outside the corpus by an author in it (Plato's *Lysis*) still pays for the second corpus
   search: accepted.
+- **Live, 2026-10-21.** The model reads the field as "which listed author, if any": "None of the
+  listed authors" for Wittgenstein (to the web at once), John Stuart Mill for the veil of
+  ignorance (one more corpus search, 2 verdicts, then the web; L.11 records it). That bias is the
+  safe one: a wrong "none" would skip an answer the corpus may hold. The second field also changed
+  the queries: told to "Name that author" with `query` as the only field, the model had kept
+  writing the query (2026-10-20's Cicero query is 2026-10-21's, "Is it ever expedient to do
+  injustice?", with more words after it). A reply schema steers the model like its prompt, so what
+  the rewrites find is measured again (`data/eval/spike_rewrites_2.py`).
 - **Web pages as passages.** Each page (its snippet or opening, at most 2,000 characters) becomes
   a chunk with the site as its author and the page title as its title, so the grader and the
   generator take it unchanged. The web is asked the reader's question, for `k` pages, each graded
@@ -826,6 +835,38 @@ search for other authors (about 12 s together on 2026-10-20's Wittgenstein quest
 | 26.7 | A web search that fails ends without an answer: the outcome records why, and keeps every passage graded before |
 | 26.8 | The outcome records how long the web search took, as a stage of its own |
 
+## Faster answers: component 27
+
+Decided with Aren on 2026-10-21 ("some quality drop is acceptable", keeping the grader and the
+rewrites). Grading is the largest stage: 5 verdicts take about 7 s of an answer, and about half of
+each verdict is the model reading its prompt (a repeated prompt, served from Ollama's cache, took
+2.5-3.5 s for the same 5). Measured on Aren's laptop (`data/eval/spike_grading_speed.py`):
+
+- **Concurrent verdicts: rejected.** 5 calls at once took as long as 5 in a row (7.2 s and 7.0 s,
+  each on prompts not yet cached): with 73% of the model on the CPU, the laptop's compute is the
+  limit. (That Ollama served all 5 repeated prompts from its cache suggests it already keeps
+  several requests' prompts, so more `OLLAMA_NUM_PARALLEL` slots would not help either; they were
+  not tried.) The spike's first summary said otherwise: its rotation ran the concurrent calls
+  second, on cached prompts, in 2 of every 3 questions.
+- **One call for all 5 passages: rejected by its rule.** 3.9 s, but recall 0.84 (rule: 0.85) and
+  37 of 245 verdicts changed.
+- **Early stop: chosen.** Grading goes in rank order and stops once 2 passages are kept: on the
+  saved verdicts of 2026-10-20, 35% fewer verdicts on the 40 retrieval questions (200 to 129),
+  no question left unanswered, and answers drawn from fewer passages (62 evidence passages kept
+  instead of 108). It never changes whether the loop starts (it stops only after a kept passage).
+  A survey or a comparison grades every author's passage: each one is a section.
+- **Other authors on request: chosen.** The search for other authors cost 6.5 s (4 verdicts) after
+  every answer from the corpus, and on 2026-10-21's Cicero question found nobody. `ask --others`
+  asks for it.
+
+## Component 27: Faster answers (`aporia_rag.graph`, `aporia_rag.cli`)
+
+| # | Test |
+|---|---|
+| 27.1 | Grading follows the order found and stops once 2 passages are kept; the passages after them are not graded, and the outcome lists them as not graded, in the order found; the answer comes from the 2 kept |
+| 27.2 | The early stop also holds for web pages |
+| 27.3 | A survey grades every author's passage, however many are kept |
+
 ## Architecture rules (`tests/unit/test_architecture.py`, run in the default suite)
 
 The dependency rules of [architecture.md](architecture.md) are checked by
@@ -853,4 +894,4 @@ instead of waiting for a code review to notice it.
 | L.8 | The configured chat model rewrites "Can a dishonourable act ever really be in our interest?" into one short search query: a single line of at most 30 words, not the question itself |
 | L.9 | For "How do Kant and Mill differ on lying?", `per_author` returns one question per author, each naming its author and the subject (lying) |
 | L.10 | The relevance grader keeps Kant's and Mill's passages on lying, each judged against its own author's question, and leaves out Mill's passage on dissent (the comparison spike of 2026-10-20, 3 of 3) |
-| L.11 | The rewriter names an author outside the corpus for the Wittgenstein and veil-of-ignorance loop questions, and a corpus author for the two in-corpus questions that needed the rewrite on 2026-10-20 (the Cicero and Hobbes questions) |
+| L.11 | The rewriter names no corpus author for the Wittgenstein and veil-of-ignorance loop questions, and a corpus author for the two in-corpus questions that needed the rewrite on 2026-10-20 (the Cicero and Hobbes questions). Expected to fail for the veil of ignorance (known limitation, 2026-10-21: the model names John Stuart Mill; the graph searches the corpus once more, then the web) |
