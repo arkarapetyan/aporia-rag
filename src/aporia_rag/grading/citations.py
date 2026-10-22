@@ -52,13 +52,28 @@ _END_PUNCTUATION: Final = " \t\n.,;:!?"
 _IGNORED: Final = str.maketrans(dict.fromkeys("'\"\u2018\u2019\u201c\u201d_"))
 
 
+type Kind = Literal["citation", "quote", "author"]
+
+# What each kind of problem is called where answers are shown (the CLI, the web UI).
+LABELS: Final[dict[Kind, str]] = {
+    "citation": "a citation with no passage",
+    "quote": "a quotation not word for word",
+    "author": "an author named for another's passage",
+}
+
+
 @dataclass(frozen=True, slots=True)
 class Problem:
     """Something in one sentence of an answer that its passages do not bear out."""
 
-    kind: Literal["citation", "quote", "author"]
+    kind: Kind
     sentence: str
     detail: str  # the citation with no passage, the quotation as written, or who is named
+
+    @property
+    def label(self) -> str:
+        """What this kind of problem is called where the answer is shown."""
+        return LABELS[self.kind]
 
     @property
     def note(self) -> str:

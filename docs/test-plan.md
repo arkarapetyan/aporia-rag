@@ -1045,6 +1045,47 @@ reads the retriever through `Searcher`, so its own `Reply` type goes.
 | 30.9 | `Container.require_index` raises a `ConfigurationError` naming the command that builds the index when the index is empty, and passes when it is not |
 | 30.10 | `evaluate --answers` also counts the outside questions left without an answer |
 
+## The web UI: component 31
+
+A demo page for the portfolio, next to the CLI: a question goes in, the reader watches the
+corrective loop work, and the answer comes back with its citations linked to its passages.
+Aren's decisions of 2026-10-22: plain HTML, CSS and JavaScript with a FastAPI backend, and the
+steps shown live, as they finish.
+
+- **Steps from the pipeline.** `CorrectiveRAG.answer(..., on_step=...)` calls back once per
+  finished node, with the node's name, one sentence on what it did ("Graded 3 passages: 2
+  relevant"), and its seconds. LangGraph streams each node's update; the pipeline turns it into a
+  `Step`, so the CLI, the page and any later client get the same words.
+- **The backend** (`aporia_rag.ui`, FastAPI): the page and its files, the corpus's authors, and
+  `POST /api/ask`, which answers as a stream of JSON lines: a line per step, then the outcome (or
+  an error). A request that cannot be answered (an unknown author, an empty index) is refused
+  before anything runs. One question runs at a time: on a laptop the model is the bottleneck, and
+  two at once would each take twice as long.
+- **The page** (`ui/static`): the question and the `ask` options, a map of the loop whose nodes
+  light up as the steps arrive, the steps listed with their times, then the answer with each
+  citation linked to its passage, the passages left out and not graded, the other authors, the
+  checks and the route.
+- `aporia-rag serve` starts it on this machine (127.0.0.1:8000 by default).
+
+The page's JavaScript has no test runner of its own: it is checked by rendering it against the
+backend with fake models and looking at it.
+
+## Component 31: Web UI (`aporia_rag.pipelines`, `aporia_rag.ui`, `aporia_rag.cli`)
+
+| # | Test |
+|---|---|
+| 31.1 | `answer(..., on_step=...)` reports every node as it finishes, in order, each with a sentence and its seconds: a first search answered gives retrieve, grade, generate, check |
+| 31.2 | The loop's steps say what happened: the rewritten query, the second search, an author outside the corpus, the web pages found or the web search's failure, nothing relevant |
+| 31.3 | Checks with problems, the answer written again, and other authors are reported as steps too; without `on_step`, nothing changes |
+| 31.4 | `GET /` serves the page, and its script and stylesheet are served |
+| 31.5 | `GET /api/authors` lists the corpus's authors and the default number of passages |
+| 31.6 | `POST /api/ask` streams one JSON line per step, then the outcome: the answer, its sources numbered as cited (citation, text, and the URL of a web page), the route, the rewritten query, the checks, the passages left out and not graded, and the times |
+| 31.7 | The request's options are `ask`'s: an author, all authors, the number of passages, and other authors |
+| 31.8 | An unknown author or an empty index is refused with status 400 and the reason, before any step; a blank question or a number of passages below 1 is refused with 422 |
+| 31.9 | A failure while answering (the model server down) ends the stream with an error line that says what failed; so does a bug, whose traceback is logged |
+| 31.10 | `aporia-rag serve` runs the app with uvicorn on the host and port given |
+| 31.11 | The checks' labels for each kind of problem are defined once (`grading.citations`) and used by the CLI and the page |
+
 ## Architecture rules (`tests/unit/test_architecture.py`, run in the default suite)
 
 The dependency rules of [architecture.md](architecture.md) are checked by
@@ -1054,9 +1095,10 @@ instead of waiting for a code review to notice it.
 
 | # | Test |
 |---|---|
-| A.1 | Layers: `cli` > `bootstrap` > `graph` > {`adapters`, `config`, `evaluation`, `generation`, `grading`, `indexing`, `ingestion`, `retrieval`} > `domain`; nothing imports a layer above it, and the middle packages do not import each other |
+| A.1 | Layers: `cli` > `ui` > `bootstrap` > `pipelines` > {`adapters`, `config`, `evaluation`, `generation`, `grading`, `indexing`, `ingestion`, `retrieval`} > `domain`; nothing imports a layer above it, and the middle packages do not import each other |
 | A.3 | LangGraph is imported only by `graph` |
 | A.2 | Provider libraries (`chromadb`, `ollama`, `ddgs`) are imported only by `adapters` (and so are reachable only through `bootstrap`) |
+| A.4 | FastAPI, Starlette and uvicorn are imported only by `ui` and by the `cli` that serves it |
 
 ## Real-model tests (opt-in: `make test-llm`; need Ollama with the configured embedding and chat models)
 

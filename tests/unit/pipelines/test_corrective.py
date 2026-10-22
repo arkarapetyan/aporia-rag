@@ -14,7 +14,7 @@ show every model call the graph made.
 import json
 import re
 from collections.abc import Callable, Iterator, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import pytest
 
@@ -25,7 +25,7 @@ from aporia_rag.generation.generator import ANSWER_PROMPT, SURVEY_PROMPT, Genera
 from aporia_rag.grading.relevance import SYSTEM_PROMPT as GRADING_PROMPT
 from aporia_rag.grading.relevance import RelevanceGrader
 from aporia_rag.pipelines.corrective import CorrectiveRAG
-from aporia_rag.pipelines.outcome import Outcome
+from aporia_rag.pipelines.outcome import Outcome, Step
 from aporia_rag.retrieval.retriever import Retriever
 from aporia_rag.retrieval.rewriter import SUBJECT_PROMPT, QueryRewriter
 from aporia_rag.retrieval.scope import Scope
@@ -122,11 +122,22 @@ class Setup:
     embedder: HashingEmbedder
     web: ScriptedWebSearch
     retriever: Retriever
+    steps: list[Step] = field(default_factory=list)  # reported as the pipeline runs
+
+    def step_summaries(self) -> list[tuple[str, str]]:
+        return [(step.node, step.summary) for step in self.steps]
 
     def answer(
         self, question: str, scope: Scope | None = None, *, k: int = 1, others: bool = False
     ) -> Outcome:
-        return self.graph.answer(question, scope or Scope(), k=k, authors=AUTHORS, others=others)
+        return self.graph.answer(
+            question,
+            scope or Scope(),
+            k=k,
+            authors=AUTHORS,
+            others=others,
+            on_step=self.steps.append,
+        )
 
     def calls(self) -> list[str]:
         """The kind of every model call so far, in order."""
@@ -565,3 +576,111 @@ def test_the_outcome_names_the_route_taken(script: Script, route: str) -> None: 
     outcome = setup.answer(GOOD_WILL)
 
     assert outcome.route == route
+
+
+def test_each_node_is_reported_as_it_finishes(monkeypatch: pytest.MonkeyPatch) -> None:  # 31.1
+    # retrieve, grade, generate: a start and an end each; the check is plain code, not timed
+    _clock(monkeypatch, 0.0, 0.5, 0.5, 2.0, 2.0, 6.0)
+    setup = _setup(Script(keep=_only(KANT)))
+
+    setup.answer(GOOD_WILL)
+
+    assert setup.step_summaries() == [
+        ("retrieve", "Found 1 passage"),
+        ("grade", "Graded 1 passage: 1 relevant"),
+        ("generate", "Wrote the answer"),
+        ("check", "Checked the answer: no problem"),
+    ]
+    assert [step.seconds for step in setup.steps] == [0.5, 1.5, 4.0, 0.0]
+
+
+def test_the_loop_reports_the_rewrite_and_the_second_search() -> None:  # 31.2
+    setup = _setup(Script(keep=_only(HOBBES), query="nasty brutish short life"))
+
+    setup.answer(GOOD_WILL, k=2)
+
+    assert setup.step_summaries()[:4] == [
+        ("retrieve", "Found 2 passages"),
+        ("grade", "Graded 2 passages: 0 relevant"),
+        ("rewrite", 'Rewrote the question as "nasty brutish short life"'),
+        ("retrieve", 'Searched again as "nasty brutish short life": found 2 passages'),
+    ]
+    assert setup.steps[4].summary == "Graded 1 passage: 1 relevant"  # the one not graded yet
+
+
+def test_an_author_outside_the_corpus_and_the_web_are_reported() -> None:  # 31.2
+    setup = _setup(Script(keep=_only(PAGE), author="John Rawls"), web=ScriptedWebSearch(PAGES))
+
+    setup.answer("What is the veil of ignorance?")
+
+    assert setup.step_summaries()[2:5] == [
+        ("rewrite", "The rewriter named John Rawls, who is not in the corpus"),
+        ("web_search", "Searched the web: found 1 page"),
+        ("grade", "Graded 1 web page: 1 relevant"),
+    ]
+
+
+def test_a_failed_web_search_is_reported() -> None:  # 31.2
+    failing = ScriptedWebSearch(failure=ProviderError("ddgs: offline"))
+    setup = _setup(Script(keep=lambda chunk: False, author="John Rawls"), web=failing)
+
+    setup.answer("What is the veil of ignorance?")
+
+    assert setup.step_summaries()[-2:] == [
+        ("web_search", "The web search failed: ddgs: offline"),
+        ("grade", "Nothing to grade"),
+    ]
+
+
+def test_problems_the_second_draft_and_other_authors_are_reported() -> None:  # 31.3
+    setup = _setup(Script(keep=_only(KANT, MILL), draft="An answer [7]."))
+
+    setup.answer(GOOD_WILL, others=True)
+
+    assert setup.step_summaries()[2:] == [
+        ("generate", "Wrote the answer"),
+        ("check", "Checked the answer: 1 problem"),
+        ("revise", "Wrote the answer again, with its problems listed"),
+        ("check", "Checked the answer: no problem"),
+        ("other_authors", "1 other author discusses this"),
+    ]
+
+
+def test_a_comparison_and_a_survey_are_reported() -> None:  # 31.3
+    compared = ("Immanuel Kant", "John Stuart Mill")
+    setup = _setup(Script(keep=_only(KANT, MILL)))
+
+    setup.answer(GOOD_WILL, Scope(survey=compared, named=compared))
+
+    assert setup.step_summaries() == [
+        ("ask_each_author", "Asked each of the 2 authors on their own"),
+        ("retrieve", "Found 2 passages"),
+        ("grade", "Graded 2 passages: 2 relevant"),
+        ("generate", "Wrote a section for each author"),
+        ("check", "Checked the answer: no problem"),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("keep", "summary"),
+    [
+        (_only(KANT), "No other author discusses this"),
+        (_only(KANT, MILL, HOBBES), "2 other authors discuss this"),
+    ],
+)
+def test_the_other_authors_found_are_counted(
+    keep: Callable[[Chunk], bool], summary: str
+) -> None:  # 31.3
+    setup = _setup(Script(keep=keep))
+
+    setup.answer(GOOD_WILL, others=True)
+
+    assert setup.steps[-1].summary == summary
+
+
+def test_a_grading_step_says_how_many_passages_it_did_not_grade() -> None:  # 31.1
+    setup = _setup(Script())  # every passage relevant: grading stops after 2
+
+    setup.answer(GOOD_WILL, k=3)
+
+    assert setup.steps[1].summary == "Graded 2 passages: 2 relevant, 1 not graded"

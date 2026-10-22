@@ -1,4 +1,4 @@
-"""What a pipeline did for one question: the type both pipelines return."""
+"""What a pipeline did for one question, and the steps it reports as it runs."""
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -36,3 +36,12 @@ class Outcome:
     def left_out(self) -> tuple[RetrievedChunk, ...]:
         """The passages graded and judged not relevant, in the order found."""
         return tuple(passage for passage in self.graded if passage not in self.relevant)
+
+
+@dataclass(frozen=True, slots=True)
+class Step:
+    """One finished step of a pipeline, as it is reported while the pipeline runs."""
+
+    node: str  # which step: "retrieve", "grade", "rewrite", "web_search", "generate"...
+    summary: str  # what it did, in one sentence: "Graded 3 passages: 2 relevant"
+    seconds: float

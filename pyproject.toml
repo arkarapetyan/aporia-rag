@@ -12,11 +12,13 @@ requires-python = ">=3.12"
 dependencies = [
     "chromadb>=1.5",
     "ddgs>=9.16",
+    "fastapi>=0.159",
     "httpx>=0.28",
     "langgraph>=1.2",
     "ollama>=0.6",
     "pydantic>=2.13",
     "pydantic-settings>=2.15",
+    "uvicorn>=0.54",
 ]
 
 [project.scripts]
@@ -87,6 +89,8 @@ name = "Dependencies point inward: cli > bootstrap > pipelines > adapters and us
 type = "layers"
 layers = [
     "aporia_rag.cli",
+    # The web UI's backend: below the CLI, which serves it (`aporia-rag serve`).
+    "aporia_rag.ui",
     "aporia_rag.bootstrap",
     # The pipelines (plain and corrective RAG): they call the use cases, and the composition
     # root builds them.
@@ -112,6 +116,25 @@ source_modules = [
     "aporia_rag.retrieval",
 ]
 forbidden_modules = ["chromadb", "ddgs", "ollama"]
+
+[[tool.importlinter.contracts]]
+id = "web-framework"
+name = "FastAPI and its server are used only by the web UI (and the CLI that starts it)"
+type = "forbidden"
+source_modules = [
+    "aporia_rag.adapters",
+    "aporia_rag.bootstrap",
+    "aporia_rag.config",
+    "aporia_rag.domain",
+    "aporia_rag.evaluation",
+    "aporia_rag.generation",
+    "aporia_rag.grading",
+    "aporia_rag.indexing",
+    "aporia_rag.ingestion",
+    "aporia_rag.pipelines",
+    "aporia_rag.retrieval",
+]
+forbidden_modules = ["fastapi", "starlette", "uvicorn"]
 
 [[tool.importlinter.contracts]]
 id = "orchestration-framework"

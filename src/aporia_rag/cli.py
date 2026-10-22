@@ -7,6 +7,7 @@
     aporia-rag evaluate [--model M]  measure retrieval on the gold questions [--dump PATH]
                                      [--grade: and the relevance grader]
                                      [--answers PATH: and answers, plain vs corrective RAG]
+    aporia-rag serve                 the web UI, on http://127.0.0.1:8000
 
 Each command parses its arguments, asks the `Container` for the components
 it needs, and prints. Expected failures (Ollama not running, a model not
@@ -22,6 +23,7 @@ from pathlib import Path
 from time import perf_counter
 
 import httpx
+import uvicorn
 
 from aporia_rag.bootstrap import Container
 from aporia_rag.config import Settings, load_settings
@@ -60,6 +62,7 @@ from aporia_rag.pipelines.corrective import ENOUGH, OTHER_AUTHORS
 from aporia_rag.pipelines.outcome import Outcome
 from aporia_rag.retrieval.scope import DEFAULT_K, Scope, scope_for
 from aporia_rag.retrieval.scope import search as search_in_scope
+from aporia_rag.ui.app import create_app
 
 type _Command = Callable[[argparse.Namespace, Container], int]
 
@@ -211,6 +214,21 @@ def _parser() -> argparse.ArgumentParser:
     )
     _add_manifest_option(evaluate)
     evaluate.set_defaults(run=_evaluate)
+
+    serve = commands.add_parser(
+        "serve",
+        help="run the web UI on this machine",
+        description=(
+            "Serve the web UI: ask a question, watch each step of the corrective loop, and read "
+            "the answer with its passages. Stop it with Ctrl+C."
+        ),
+    )
+    serve.add_argument(
+        "--host", default="127.0.0.1", help="address to listen on (default: %(default)s)"
+    )
+    serve.add_argument("--port", type=_positive_int, default=8000, help="default: %(default)s")
+    _add_manifest_option(serve)
+    serve.set_defaults(run=_serve)
     return parser
 
 
@@ -354,12 +372,6 @@ _STAGES = (
     "revision",
     "other authors",
 )
-# How `ask` names each kind of problem the answer checks find (`grading.citations`).
-_PROBLEMS = {
-    "citation": "a citation with no passage",
-    "quote": "a quotation not word for word",
-    "author": "an author named for another's passage",
-}
 
 
 def _ask(args: argparse.Namespace, container: Container) -> int:
@@ -416,7 +428,7 @@ def _print_checks(outcome: Outcome) -> None:
         print("\nStill not borne out by its passages:")
         for problem in outcome.problems:
             detail = f'"{problem.detail}"' if problem.kind == "quote" else problem.detail
-            print(f"- {_PROBLEMS[problem.kind]}: {detail}")
+            print(f"- {problem.label}: {detail}")
 
 
 def _nothing_answers(graded: int) -> str:
@@ -440,6 +452,18 @@ def _why_the_web(outcome: Outcome) -> str:
 
 def _label(passage: RetrievedChunk) -> str:
     return f"{passage.chunk.metadata.citation} ({passage.chunk.id})"
+
+
+# --------------------------------------------------------------------------
+# serve
+# --------------------------------------------------------------------------
+
+
+def _serve(args: argparse.Namespace, container: Container) -> int:
+    app = create_app(container, load_manifest(args.manifest).authors)
+    print(f"AporiaRAG on http://{args.host}:{args.port} (Ctrl+C stops it)")
+    uvicorn.run(app, host=args.host, port=args.port, log_level="warning")
+    return 0
 
 
 # --------------------------------------------------------------------------

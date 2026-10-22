@@ -1,4 +1,4 @@
-"""The architecture's dependency rules, enforced (test plan: A.1-A.3).
+"""The architecture's dependency rules, enforced (test plan: A.1-A.4).
 
 The rules are import-linter contracts in pyproject.toml. import-linter
 builds the graph of every import in the package (direct and indirect), so
@@ -20,6 +20,7 @@ PYPROJECT = Path(__file__).parents[2] / "pyproject.toml"
         "layers",  # A.1
         "provider-libraries",  # A.2
         "orchestration-framework",  # A.3
+        "web-framework",  # A.4
     ],
 )
 def test_import_contract_holds(contract: str) -> None:

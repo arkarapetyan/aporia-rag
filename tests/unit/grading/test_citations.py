@@ -240,3 +240,15 @@ def test_every_problem_says_what_to_fix(text: str, note: str) -> None:  # 28.6
     [problem] = _check(text, CICERO, HOBBES)
 
     assert problem.note == note
+
+
+def test_every_kind_of_problem_has_one_label() -> None:  # 31.11
+    [citation] = _check("The soul comes first [3].", CICERO, HOBBES)
+    [quote] = _check('Men want "natural Passions" [1].', CICERO, HOBBES)
+    [author] = _check("Plato ranks the soul above the body [1].", CICERO, HOBBES)
+
+    assert [problem.label for problem in (citation, quote, author)] == [
+        "a citation with no passage",
+        "a quotation not word for word",
+        "an author named for another's passage",
+    ]
