@@ -1,5 +1,6 @@
-// AporiaRAG's page: ask, watch the route light up step by step, read the cited answer.
-// The backend streams one JSON line per finished step, then the outcome (see ui/app.py).
+// AporiaRAG's page: a conversation. Each question gets a reply that shows the route it took,
+// step by step as the backend streams them (see ui/app.py), then the answer, whose citations
+// link to the passages in the panel beside the conversation (inside the reply on a narrow screen).
 
 "use strict";
 
@@ -20,56 +21,61 @@ const STATIONS = [
   { id: "check-again", label: ["Check", "again"] },
   { id: "others", label: ["Other", "authors"] },
 ];
-const MAIN_Y = 44;
-const DETOUR_Y = 98;
+const MAIN_Y = 40;
+const DETOUR_Y = 86;
 const STAGES = [
   "rewriting", "retrieval", "grading", "web search", "generation", "revision", "other authors",
 ];
 const SVG = "http://www.w3.org/2000/svg";
+const WIDE = window.matchMedia("(min-width: 1000px)");
 
-const $ = (selector) => document.querySelector(selector);
+const $ = (selector, root = document) => root.querySelector(selector);
 const form = $("#ask");
 const question = $("#question");
 const submit = $("#submit");
-const map = $("#map");
-const steps = $("#steps");
+const threadInner = $(".thread-inner");
 
-const x = (index) => 40 + index * (880 / (STATIONS.length - 1));
-const y = (station) => (station.main ? MAIN_Y : DETOUR_Y);
+const exchanges = []; // { request, outcome, element }
+let defaultK = 5; // the server's, from /api/authors
+let running = null; // the exchange being answered: { ..., seen, path, started, timer }
 
-function svg(name, attributes = {}, parent = map) {
+// -- The route map ---------------------------------------------------------
+
+const stationX = (index) => 32 + index * (696 / (STATIONS.length - 1));
+const stationY = (station) => (station.main ? MAIN_Y : DETOUR_Y);
+
+function svg(name, attributes, parent) {
   const element = document.createElementNS(SVG, name);
   for (const [key, value] of Object.entries(attributes)) element.setAttribute(key, value);
   parent.append(element);
   return element;
 }
 
-function drawMap() {
-  map.replaceChildren();
+function drawMap(map) {
   const mains = STATIONS.map((station, i) => [station, i]).filter(([station]) => station.main);
+  const first = stationX(mains[0][1]);
+  const last = stationX(mains.at(-1)[1]);
+  svg("path", { class: "track", d: `M ${first} ${MAIN_Y} H ${last}` }, map);
   svg("path", {
-    class: "track",
-    d: `M ${x(mains[0][1])} ${MAIN_Y} H ${x(mains.at(-1)[1])}`,
-  });
-  svg("path", { class: "track track-detour", d: `M ${x(0)} ${DETOUR_Y} H ${x(STATIONS.length - 1)}` });
-  svg("polyline", { id: "taken", class: "taken", points: "" });
+    class: "track track-detour",
+    d: `M ${stationX(0)} ${DETOUR_Y} H ${stationX(STATIONS.length - 1)}`,
+  }, map);
+  svg("polyline", { class: "taken", points: "" }, map);
   STATIONS.forEach((station, i) => {
     const group = svg("g", {
       class: `station${station.main ? " main" : ""}`,
       "data-station": station.id,
-    });
-    svg("circle", { cx: x(i), cy: y(station), r: station.main ? 8 : 6 }, group);
-    const text = svg("text", { x: x(i), y: station.main ? MAIN_Y - 18 : DETOUR_Y + 24 }, group);
+    }, map);
+    svg("circle", { cx: stationX(i), cy: stationY(station), r: station.main ? 7.5 : 5.5 }, group);
+    const text = svg("text", {
+      x: stationX(i),
+      y: station.main ? MAIN_Y - 16 : DETOUR_Y + 22,
+    }, group);
     station.label.forEach((line, n) => {
-      const span = svg("tspan", { x: x(i), dy: n === 0 ? 0 : 15 }, text);
-      span.textContent = line;
+      svg("tspan", { x: stationX(i), dy: n === 0 ? 0 : 14 }, text).textContent = line;
     });
   });
 }
-
-// -- One run ---------------------------------------------------------------
-
-let run = null; // { seen: Set, path: [station ids], started: ms, timer }
 
 function stationFor(node, seen) {
   switch (node) {
@@ -97,66 +103,81 @@ function stationFor(node, seen) {
   }
 }
 
-function markStation(id, state) {
-  map.querySelector(`[data-station="${id}"]`)?.classList.add(state);
+function waitAt(run, id) {
+  run.map.querySelectorAll(".waiting").forEach((g) => g.classList.remove("waiting"));
+  if (id) run.map.querySelector(`[data-station="${id}"]`)?.classList.add("waiting");
 }
 
-function clearMap() {
-  map.querySelectorAll(".station").forEach((g) => g.classList.remove("visited", "waiting"));
-  $("#taken").setAttribute("points", "");
-}
-
-function drawTaken() {
+function drawTaken(run) {
   const points = run.path.map((id) => {
     const i = STATIONS.findIndex((station) => station.id === id);
-    return `${x(i)},${y(STATIONS[i])}`;
+    return `${stationX(i)},${stationY(STATIONS[i])}`;
   });
-  $("#taken").setAttribute("points", points.join(" "));
+  $(".taken", run.map).setAttribute("points", points.join(" "));
 }
 
-function wait(id) {
-  map.querySelectorAll(".waiting").forEach((g) => g.classList.remove("waiting"));
-  if (id) markStation(id, "waiting");
+// -- Following a run -------------------------------------------------------
+
+// The page scrolls; the bar and the question box stay in place over it.
+const scroller = document.scrollingElement;
+
+function nearBottom() {
+  return scroller.scrollHeight - scroller.scrollTop - window.innerHeight < 160;
 }
 
-function working() {
-  let line = steps.querySelector(".working");
+function keepInView(force = false) {
+  if (force || nearBottom()) window.scrollTo({ top: scroller.scrollHeight });
+}
+
+function measureBar() {
+  document.documentElement.style.setProperty("--bar-height", `${$(".bar").offsetHeight}px`);
+}
+
+function tick(run) {
+  const elapsed = (performance.now() - run.started) / 1000;
+  let line = $(".working", run.steps);
   if (!line) {
     line = document.createElement("li");
     line.className = "working";
     line.innerHTML = '<span>Working on the next step</span><span class="seconds"></span>';
-    steps.append(line);
+    run.steps.append(line);
   }
-  const elapsed = (performance.now() - run.started) / 1000;
-  line.querySelector(".seconds").textContent = `${elapsed.toFixed(1)} s`;
+  $(".seconds", line).textContent = `${elapsed.toFixed(1)} s`;
+  $(".steps-summary", run.element).textContent = `Working: ${elapsed.toFixed(0)} s so far`;
 }
 
-function onStep(step) {
+function onStep(run, step) {
   const id = stationFor(step.node, run.seen);
   if (id) {
     run.seen.add(id);
     run.path.push(id);
-    markStation(id, "visited");
-    drawTaken();
-    wait(id);
+    run.map.querySelector(`[data-station="${id}"]`)?.classList.add("visited");
+    drawTaken(run);
+    waitAt(run, id);
   }
-  steps.querySelector(".working")?.remove();
+  $(".working", run.steps)?.remove();
   const line = document.createElement("li");
   line.innerHTML = `<span></span><span class="seconds">${step.seconds.toFixed(1)} s</span>`;
   line.firstChild.textContent = step.summary;
-  steps.append(line);
-  working();
+  run.steps.append(line);
+  tick(run);
+  keepInView();
 }
 
-function finish() {
+function stopRun(run, summary) {
   clearInterval(run.timer);
-  steps.querySelector(".working")?.remove();
-  wait(null);
+  $(".working", run.steps)?.remove();
+  waitAt(run, null);
+  const box = $(".steps-box", run.element);
+  $(".steps-summary", run.element).textContent = summary;
+  box.open = false;
   submit.disabled = false;
   submit.textContent = "Ask";
+  document.title = "AporiaRAG";
+  running = null;
 }
 
-// -- The outcome -----------------------------------------------------------
+// -- Rendering an outcome --------------------------------------------------
 
 const escape = (text) =>
   text.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
@@ -173,75 +194,72 @@ function numbersIn(group) {
   });
 }
 
-function linkCitations(html, count) {
+function linkCitations(html, count, exchange) {
   return html.replace(CITATION, (_, group) => {
     const links = numbersIn(group).map((n) =>
       n >= 1 && n <= count
-        ? `<a class="cite" href="#source-${n}" data-source="${n}">${n}</a>`
+        ? `<a class="cite" href="#" data-exchange="${exchange}" data-source="${n}">${n}</a>`
         : `<span class="cite cite-missing" title="No passage has this number">${n}</span>`
     );
     return `[${links.join(", ")}]`;
   });
 }
 
-function inline(text, count) {
+function inline(text, count, exchange) {
   const html = escape(text)
     .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
     .replace(/(^|[^*])\*([^*\s][^*]*?)\*/g, "$1<em>$2</em>");
-  return linkCitations(html, count);
+  return linkCitations(html, count, exchange);
 }
 
-function renderAnswer(text, outcome) {
+function renderAnswer(text, outcome, exchange) {
   const count = outcome.sources.length;
-  const blocks = text.trim().split(/\n\s*\n/);
-  return blocks
+  return text
+    .trim()
+    .split(/\n\s*\n/)
     .map((block) => {
       const lines = block.split("\n");
       const heading = outcome.survey && lines[0].match(/^(.+?) \[(\d+)\]$/);
       if (heading) {
         const body = lines.slice(1).join(" ");
-        return `<h3>${escape(heading[1])} ${linkCitations(`[${heading[2]}]`, count)}</h3>` +
-          `<p>${inline(body, count)}</p>`;
+        return `<h3>${escape(heading[1])} ${linkCitations(`[${heading[2]}]`, count, exchange)}</h3>` +
+          `<p>${inline(body, count, exchange)}</p>`;
       }
       if (lines.every((line) => /^\s*[-*] /.test(line))) {
-        const items = lines.map((line) => `<li>${inline(line.replace(/^\s*[-*] /, ""), count)}</li>`);
+        const items = lines.map(
+          (line) => `<li>${inline(line.replace(/^\s*[-*] /, ""), count, exchange)}</li>`
+        );
         return `<ul>${items.join("")}</ul>`;
       }
-      return `<p>${lines.map((line) => inline(line, count)).join("<br>")}</p>`;
+      return `<p>${lines.map((line) => inline(line, count, exchange)).join("<br>")}</p>`;
     })
     .join("");
 }
 
-function plural(count, one, many = `${one}s`) {
-  return `${count} ${count === 1 ? one : many}`;
-}
+const plural = (count, one, many = `${one}s`) => `${count} ${count === 1 ? one : many}`;
 
 function routeNote(outcome) {
-  const parts = [];
-  if (outcome.route === "normal") parts.push("Answered from the corpus on the first search.");
+  if (outcome.route === "normal") return "Answered from the corpus on the first search.";
   if (outcome.route === "loop") {
-    parts.push(`Nothing relevant on the first search, so the question was searched again as “${outcome.query}”.`);
+    return `Nothing relevant on the first search, so the question was searched again as “${outcome.query}”.`;
   }
   if (outcome.route === "web") {
-    parts.push(
-      outcome.outside_author
-        ? `The rewriter named ${outcome.outside_author}, who is not in the corpus, so the web was searched.`
-        : "Nothing in the corpus answered, so the web was searched."
-    );
-    if (outcome.web_error) parts.push(`The web search failed: ${outcome.web_error}.`);
+    const why = outcome.outside_author
+      ? `The rewriter named ${outcome.outside_author}, who is not in the corpus, so the web was searched.`
+      : "Nothing in the corpus answered, so the web was searched.";
+    return outcome.web_error ? `${why} The web search failed: ${outcome.web_error}.` : why;
   }
-  return parts.join(" ");
+  return "";
 }
 
-function renderChecks(outcome) {
-  const box = $("#checks");
+function renderChecks(box, outcome) {
   const remaining = outcome.problems;
   box.hidden = !outcome.draft_problems && !remaining.length;
   box.classList.toggle("clean", !remaining.length);
   box.replaceChildren();
   if (box.hidden) return;
-  const first = document.createElement("p");
   if (outcome.draft_problems) {
+    const first = document.createElement("p");
     first.textContent =
       `The first answer had ${plural(outcome.draft_problems, "problem")} with its passages, so it was written again.` +
       (remaining.length ? "" : " The second answer passes the checks.");
@@ -261,54 +279,6 @@ function renderChecks(outcome) {
   }
 }
 
-function sourceItem(source) {
-  const item = document.createElement("li");
-  item.className = "source";
-  item.id = `source-${source.number}`;
-  item.innerHTML =
-    `<span class="siglum">[${source.number}]</span><span class="citation"></span><blockquote></blockquote>`;
-  const citation = item.querySelector(".citation");
-  if (source.url) {
-    const link = document.createElement("a");
-    link.href = source.url;
-    link.rel = "noopener noreferrer";
-    link.target = "_blank";
-    link.textContent = source.citation;
-    citation.append(link);
-  } else {
-    citation.textContent = source.citation;
-  }
-  const quote = item.querySelector("blockquote");
-  quote.textContent = source.text.replace(/\s+/g, " ").trim();
-  if (source.text.length > 420) {
-    const toggle = document.createElement("button");
-    toggle.type = "button";
-    toggle.className = "toggle";
-    toggle.textContent = "Show the whole passage";
-    toggle.addEventListener("click", () => {
-      const open = item.classList.toggle("open");
-      toggle.textContent = open ? "Show less" : "Show the whole passage";
-    });
-    item.append(toggle);
-  }
-  return item;
-}
-
-function fillList(boxId, passages) {
-  const box = $(boxId);
-  box.hidden = !passages.length;
-  box.querySelector(".count").textContent = `(${passages.length})`;
-  const list = box.querySelector(".passage-list");
-  list.replaceChildren(
-    ...passages.map((passage) => {
-      const item = document.createElement("li");
-      item.textContent = passage.citation;
-      item.title = passage.text.replace(/\s+/g, " ").slice(0, 300);
-      return item;
-    })
-  );
-}
-
 function scopeNote(outcome) {
   if (outcome.author_questions.length) {
     return `Asked of each author on their own: ${outcome.author_questions.join(" ")}`;
@@ -319,12 +289,82 @@ function scopeNote(outcome) {
   return "";
 }
 
-function renderOutcome(outcome) {
-  $("#result").hidden = false;
+// The passages of one answer: built for the panel, or for the reply on a narrow screen.
+function passagesFor(outcome, exchange, where) {
+  const fragment = document.createDocumentFragment();
+  const list = document.createElement("ol");
+  list.className = "sources";
+  for (const source of outcome.sources) {
+    const item = document.createElement("li");
+    item.className = "source";
+    item.id = `${where}-${exchange}-${source.number}`;
+    item.innerHTML =
+      `<span class="siglum">[${source.number}]</span><span class="citation"></span><blockquote></blockquote>`;
+    const citation = $(".citation", item);
+    if (source.url) {
+      const link = document.createElement("a");
+      link.href = source.url;
+      link.rel = "noopener noreferrer";
+      link.target = "_blank";
+      link.textContent = source.citation;
+      citation.append(link);
+    } else {
+      citation.textContent = source.citation;
+    }
+    $("blockquote", item).textContent = source.text.replace(/\s+/g, " ").trim();
+    if (source.text.length > 480) {
+      const toggle = document.createElement("button");
+      toggle.type = "button";
+      toggle.className = "toggle";
+      toggle.textContent = "Show the whole passage";
+      toggle.addEventListener("click", () => {
+        const open = item.classList.toggle("open");
+        toggle.textContent = open ? "Show less" : "Show the whole passage";
+      });
+      item.append(toggle);
+    }
+    list.append(item);
+  }
+  fragment.append(list);
+  const groups = [
+    ["Other authors who discuss this", outcome.others],
+    ["Left out as not relevant", outcome.left_out],
+    ["Not graded, as two relevant passages came first", outcome.skipped],
+  ];
+  for (const [title, passages] of groups) {
+    if (!passages.length) continue;
+    const box = document.createElement("details");
+    box.className = "more";
+    box.innerHTML = `<summary></summary><ul class="passage-list"></ul>`;
+    $("summary", box).textContent = `${title} (${passages.length})`;
+    for (const passage of passages) {
+      const item = document.createElement("li");
+      item.textContent = passage.citation;
+      item.title = passage.text.replace(/\s+/g, " ").slice(0, 300);
+      $(".passage-list", box).append(item);
+    }
+    fragment.append(box);
+  }
+  return fragment;
+}
+
+function showInPanel(index) {
+  const { request, outcome } = exchanges[index];
+  $("#apparatus-title").textContent = outcome.web && outcome.sources.length ? "Web sources" : "Passages";
+  const text = request.question.length > 90 ? `${request.question.slice(0, 90)}…` : request.question;
+  $("#apparatus-for").textContent = `For: “${text}”`;
+  $("#apparatus-body").replaceChildren(passagesFor(outcome, index, "panel"));
+}
+
+function renderOutcome(run, outcome) {
+  const index = exchanges.indexOf(run.exchange);
+  run.exchange.outcome = outcome;
+  const element = run.element;
+  const body = $(".reply-body", element);
   const note = scopeNote(outcome);
-  $("#scope-note").hidden = !note;
-  $("#scope-note").textContent = note;
-  const text = $("#answer-text");
+  $(".scope-note", element).hidden = !note;
+  $(".scope-note", element).textContent = note;
+  const text = $(".answer-text", element);
   if (outcome.answer === null) {
     const graded = outcome.left_out.length;
     text.innerHTML = `<p>${
@@ -333,28 +373,89 @@ function renderOutcome(outcome) {
         : `None of the ${graded} passages found answers this question.`
     }</p>`;
   } else {
-    text.innerHTML = renderAnswer(outcome.answer, outcome);
+    text.innerHTML = renderAnswer(outcome.answer, outcome, index);
   }
-  renderChecks(outcome);
-  $("#route-note").textContent = routeNote(outcome);
+  renderChecks($(".checks", element), outcome);
+  $(".route-note", element).textContent = routeNote(outcome);
+  const inlinePassages = $(".inline-passages", element);
+  const count = outcome.sources.length + outcome.others.length + outcome.left_out.length + outcome.skipped.length;
+  inlinePassages.hidden = count === 0;
+  $("summary", inlinePassages).textContent =
+    `${outcome.web && outcome.sources.length ? "Web sources" : "Passages"} (${outcome.sources.length})`;
+  $(".inline-passages-body", inlinePassages).replaceChildren(passagesFor(outcome, index, "inline"));
+  body.hidden = false;
+  showInPanel(index);
+
+  const total = (performance.now() - run.started) / 1000;
   const stages = STAGES.filter((stage) => stage in outcome.seconds).map(
     (stage) => `${stage} ${outcome.seconds[stage].toFixed(1)} s`
   );
-  const total = (performance.now() - run.started) / 1000;
-  $("#times").textContent = `Answered in ${total.toFixed(1)} s: ${stages.join(", ")}.`;
-  $("#sources-title").textContent = outcome.web ? "Web sources" : "Passages";
-  $("#sources").replaceChildren(...outcome.sources.map(sourceItem));
-  fillList("#others-box", outcome.others);
-  fillList("#left-out-box", outcome.left_out);
-  fillList("#skipped-box", outcome.skipped);
+  stopRun(run, `${plural(run.steps.children.length, "step")} in ${total.toFixed(1)} s: ${stages.join(", ")}`);
+  // The question at the top of the view, its route and answer right under it.
+  const top = element.getBoundingClientRect().top + scroller.scrollTop - $(".bar").offsetHeight - 8;
+  window.scrollTo({ top });
+}
+
+function renderError(run, message) {
+  const box = $(".error", run.element);
+  box.hidden = false;
+  box.textContent = message;
+  stopRun(run, "Stopped");
+  keepInView(true);
 }
 
 // -- Asking ----------------------------------------------------------------
 
-function showError(message) {
-  const box = $("#error");
-  box.hidden = !message;
-  box.textContent = message || "";
+function requestFromForm() {
+  const author = $("#author").value;
+  return {
+    question: question.value.trim(),
+    author: author && author !== "*" ? author : null,
+    all_authors: author === "*",
+    k: Number($("#k").value) || 5,
+    others: $("#others").checked,
+  };
+}
+
+function optionLabels(request) {
+  const labels = [];
+  if (request.all_authors) labels.push("All authors");
+  if (request.author) labels.push(request.author);
+  if (request.k !== defaultK) labels.push(plural(request.k, "passage"));
+  if (request.others) labels.push("Other authors");
+  return labels;
+}
+
+function startExchange(request) {
+  $("#welcome").hidden = true;
+  const element = $("#exchange").content.firstElementChild.cloneNode(true);
+  $(".question-text", element).textContent = request.question;
+  const options = $(".question-options", element);
+  for (const label of optionLabels(request)) {
+    const item = document.createElement("li");
+    item.textContent = label;
+    options.append(item);
+  }
+  options.hidden = !options.children.length;
+  drawMap($(".map", element));
+  threadInner.append(element);
+  const exchange = { request, outcome: null, element };
+  exchanges.push(exchange);
+  const run = {
+    exchange,
+    element,
+    map: $(".map", element),
+    steps: $(".steps", element),
+    seen: new Set(),
+    path: [],
+    started: performance.now(),
+    timer: null,
+  };
+  waitAt(run, "search");
+  tick(run);
+  run.timer = setInterval(() => tick(run), 250);
+  keepInView(true);
+  return run;
 }
 
 function refusal(status, body) {
@@ -368,30 +469,19 @@ function refusal(status, body) {
 
 async function ask(event) {
   event.preventDefault();
-  const text = question.value.trim();
-  if (!text) {
-    showError("Write a question first.");
+  if (running) return;
+  const request = requestFromForm();
+  if (!request.question) {
     question.focus();
     return;
   }
-  const author = $("#author").value;
-  const request = {
-    question: text,
-    author: author && author !== "*" ? author : null,
-    all_authors: author === "*",
-    k: Number($("#k").value) || 5,
-    others: $("#others").checked,
-  };
-  showError("");
-  $("#result").hidden = true;
-  steps.replaceChildren();
-  clearMap();
-  run = { seen: new Set(), path: [], started: performance.now(), timer: null };
+  question.value = "";
+  autoGrow();
   submit.disabled = true;
   submit.textContent = "Answering…";
-  wait("search");
-  working();
-  run.timer = setInterval(working, 200);
+  document.title = "Answering… AporiaRAG";
+  const run = startExchange(request);
+  running = run;
   try {
     const response = await fetch("/api/ask", {
       method: "POST",
@@ -400,7 +490,7 @@ async function ask(event) {
     });
     if (!response.ok) {
       const body = await response.json().catch(() => null);
-      showError(refusal(response.status, body));
+      renderError(run, refusal(response.status, body));
       return;
     }
     const reader = response.body.getReader();
@@ -416,52 +506,81 @@ async function ask(event) {
         buffer = buffer.slice(end + 1);
         if (!line) continue;
         const message = JSON.parse(line);
-        if (message.event === "step") onStep(message);
-        if (message.event === "outcome") renderOutcome(message);
-        if (message.event === "error") showError(message.message);
+        if (message.event === "step") onStep(run, message);
+        if (message.event === "outcome") renderOutcome(run, message);
+        if (message.event === "error") renderError(run, message.message);
       }
     }
+    if (running === run) renderError(run, "The answer stopped before it was complete.");
   } catch (error) {
-    showError(`The server could not be reached: ${error.message}. Is \`aporia-rag serve\` running?`);
-  } finally {
-    finish();
+    if (running === run) {
+      renderError(run, `The server could not be reached (${error.message}). Is \`aporia-rag serve\` running?`);
+    }
   }
+}
+
+// -- Wiring ----------------------------------------------------------------
+
+function autoGrow() {
+  question.style.height = "auto";
+  question.style.height = `${Math.min(question.scrollHeight + 2, 160)}px`;
 }
 
 document.addEventListener("click", (event) => {
   const cite = event.target.closest(".cite[data-source]");
   if (!cite) return;
   event.preventDefault();
-  const source = document.getElementById(`source-${cite.dataset.source}`);
-  source.scrollIntoView({ behavior: "smooth", block: "nearest" });
-  source.classList.remove("flash");
-  void source.offsetWidth; // restart the animation
-  source.classList.add("flash");
+  const exchange = Number(cite.dataset.exchange);
+  let target;
+  if (WIDE.matches) {
+    showInPanel(exchange);
+    target = document.getElementById(`panel-${exchange}-${cite.dataset.source}`);
+  } else {
+    const box = $(".inline-passages", exchanges[exchange].element);
+    box.open = true;
+    target = document.getElementById(`inline-${exchange}-${cite.dataset.source}`);
+  }
+  target?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  target?.classList.remove("flash");
+  void target?.offsetWidth; // restart the animation
+  target?.classList.add("flash");
 });
 
 document.querySelectorAll(".example").forEach((button) =>
   button.addEventListener("click", () => {
     question.value = button.textContent;
-    question.focus();
+    autoGrow();
+    form.requestSubmit();
   })
 );
 
+question.addEventListener("input", autoGrow);
 question.addEventListener("keydown", (event) => {
-  if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) form.requestSubmit();
+  if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
+    event.preventDefault();
+    form.requestSubmit();
+  }
 });
 
 form.addEventListener("submit", ask);
 
+window.addEventListener("resize", measureBar);
+
 async function start() {
-  drawMap();
+  measureBar();
   try {
     const { authors, k } = await (await fetch("/api/authors")).json();
     const select = $("#author");
     for (const author of authors) select.add(new Option(author, author));
     $("#k").value = k;
+    defaultK = k;
   } catch {
-    showError("The server could not be reached. Is `aporia-rag serve` running?");
+    const note = document.createElement("p");
+    note.className = "error";
+    note.textContent = "The server could not be reached. Is `aporia-rag serve` running?";
+    threadInner.append(note);
   }
+  question.focus();
 }
 
 start();
