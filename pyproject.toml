@@ -83,13 +83,14 @@ include_external_packages = true
 
 [[tool.importlinter.contracts]]
 id = "layers"
-name = "Dependencies point inward: cli > bootstrap > graph > adapters and use cases > domain"
+name = "Dependencies point inward: cli > bootstrap > pipelines > adapters and use cases > domain"
 type = "layers"
 layers = [
     "aporia_rag.cli",
     "aporia_rag.bootstrap",
-    # The corrective loop: it calls the use cases, and the composition root builds it.
-    "aporia_rag.graph",
+    # The pipelines (plain and corrective RAG): they call the use cases, and the composition
+    # root builds them.
+    "aporia_rag.pipelines",
     # `|`: independent siblings, which must not import each other either.
     "aporia_rag.adapters | aporia_rag.config | aporia_rag.evaluation | aporia_rag.generation | aporia_rag.grading | aporia_rag.indexing | aporia_rag.ingestion | aporia_rag.retrieval",
     "aporia_rag.domain",
@@ -105,16 +106,16 @@ source_modules = [
     "aporia_rag.evaluation",
     "aporia_rag.generation",
     "aporia_rag.grading",
-    "aporia_rag.graph",
     "aporia_rag.indexing",
     "aporia_rag.ingestion",
+    "aporia_rag.pipelines",
     "aporia_rag.retrieval",
 ]
 forbidden_modules = ["chromadb", "ddgs", "ollama"]
 
 [[tool.importlinter.contracts]]
 id = "orchestration-framework"
-name = "LangGraph is imported only by the graph"
+name = "LangGraph is imported only by the corrective pipeline"
 type = "forbidden"
 source_modules = [
     "aporia_rag.adapters",
@@ -127,10 +128,12 @@ source_modules = [
     "aporia_rag.grading",
     "aporia_rag.indexing",
     "aporia_rag.ingestion",
+    "aporia_rag.pipelines.outcome",
+    "aporia_rag.pipelines.plain",
     "aporia_rag.retrieval",
 ]
 forbidden_modules = ["langgraph"]
-# Direct imports only: `cli` and `bootstrap` reach LangGraph through `graph`, as intended.
+# Direct imports only: `cli` and `bootstrap` reach LangGraph through `pipelines.corrective`.
 allow_indirect_imports = true
 
 # --------------------------------------------------------------------------

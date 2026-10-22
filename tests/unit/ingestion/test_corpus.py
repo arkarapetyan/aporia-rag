@@ -112,3 +112,16 @@ class TestEditionLayout:
     def test_needs_one_or_two_section_levels(self, levels: list[str]) -> None:  # 3.10
         with pytest.raises(ValidationError, match="sections"):
             _layout(sections=levels)
+
+
+def test_the_manifests_authors_are_its_works_authors_once_each_sorted() -> None:  # 30.5
+    manifest = CorpusManifest(
+        works=[
+            _work(id="mill-on-liberty", author="John Stuart Mill", gutenberg_id=34901),
+            _work(),  # Plato
+            _work(id="mill-utilitarianism", author="John Stuart Mill", gutenberg_id=11224),
+        ]
+    )
+
+    assert manifest.authors == ("John Stuart Mill", "Plato")
+    assert len(load_manifest().authors) == 11  # 12 works: Mill wrote two

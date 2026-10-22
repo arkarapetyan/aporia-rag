@@ -28,7 +28,7 @@ from aporia_rag.config import Settings, load_settings
 from aporia_rag.domain.errors import AporiaError
 from aporia_rag.domain.models import RetrievedChunk
 from aporia_rag.domain.ports import WebSearch
-from aporia_rag.evaluation.answers import Reply, Summary, System, evaluate_answers, summarize
+from aporia_rag.evaluation.answers import Summary, System, evaluate_answers, summarize
 from aporia_rag.evaluation.answers import write_answers as write_answer_records
 from aporia_rag.evaluation.gold import GoldSet, load_gold_set
 from aporia_rag.evaluation.grading import (
@@ -46,11 +46,8 @@ from aporia_rag.evaluation.retrieval import (
     mean_reciprocal_rank,
     write_retrievals,
 )
-from aporia_rag.grading.citations import check_citations
-from aporia_rag.graph.corrective import ENOUGH, Outcome, Scope
-from aporia_rag.graph.corrective import search as search_in_scope
 from aporia_rag.indexing.indexer import WorkProgress
-from aporia_rag.ingestion.corpus import WorkSpec, load_manifest
+from aporia_rag.ingestion.corpus import load_manifest
 from aporia_rag.ingestion.gutenberg import (
     DEFAULT_MIRROR,
     POLITE_DELAY_SECONDS,
@@ -59,20 +56,14 @@ from aporia_rag.ingestion.gutenberg import (
     fetch_cached,
 )
 from aporia_rag.ingestion.loader import iter_documents
-from aporia_rag.retrieval.names import authors_named_in
+from aporia_rag.pipelines.corrective import ENOUGH, OTHER_AUTHORS
+from aporia_rag.pipelines.outcome import Outcome
+from aporia_rag.retrieval.scope import DEFAULT_K, Scope, scope_for
+from aporia_rag.retrieval.scope import search as search_in_scope
 
 type _Command = Callable[[argparse.Namespace, Container], int]
 
 _SNIPPET_LENGTH = 200
-# How many passages `ask` retrieves by default, and plain RAG answers from in `evaluate --answers`.
-_DEFAULT_K = 5
-# How many other authors `ask` grades after an answer. Each verdict is one
-# model call (2-4 s on an 8 GB laptop GPU), so this bounds the extra wait.
-_OTHER_AUTHORS = 4
-
-
-class CommandError(AporiaError):
-    """A command was used in a way that cannot work (e.g. an unknown author)."""
 
 
 def main(
@@ -167,7 +158,7 @@ def _parser() -> argparse.ArgumentParser:
         "--others",
         action="store_true",
         help="after the answer, also grade the best passage of up to "
-        f"{_OTHER_AUTHORS} other authors and list those who discuss the question (one model "
+        f"{OTHER_AUTHORS} other authors and list those who discuss the question (one model "
         "call each; only when the question names no author)",
     )
     ask.set_defaults(run=_ask)
@@ -214,7 +205,7 @@ def _parser() -> argparse.ArgumentParser:
         type=Path,
         default=None,
         metavar="PATH",
-        help=f"also answer every gold question with plain RAG (the top {_DEFAULT_K} passages) "
+        help=f"also answer every gold question with plain RAG (the top {DEFAULT_K} passages) "
         "and with the corrective graph, as `ask` would with the configured models, compare "
         "them, and write every answer to PATH (JSON Lines; many model calls)",
     )
@@ -228,7 +219,7 @@ def _add_question_options(command: argparse.ArgumentParser) -> None:
     command.add_argument(
         "-k",
         type=_positive_int,
-        default=_DEFAULT_K,
+        default=DEFAULT_K,
         help="how many passages (default: %(default)s; --all-authors takes one per author)",
     )
     scope = command.add_mutually_exclusive_group()
@@ -321,8 +312,8 @@ def _print_progress(progress: WorkProgress) -> None:
 
 
 def _search(args: argparse.Namespace, container: Container) -> int:
-    scope = _scope(args, load_manifest(args.manifest).works)
-    _require_index(container)
+    scope = _scope(args, load_manifest(args.manifest).authors)
+    container.require_index()
     _print_scope(scope)
     found = search_in_scope(container.retriever, args.question, scope, k=args.k)
     for rank, result in enumerate(found, start=1):
@@ -332,44 +323,13 @@ def _search(args: argparse.Namespace, container: Container) -> int:
     return 0
 
 
-def _scope(args: argparse.Namespace, works: Sequence[WorkSpec]) -> Scope:
-    """`--author` and `--all-authors` decide; without them, the authors the question names."""
-    if args.author is not None:
-        return Scope(author=_resolve_author(args.author, works))
-    authors = _authors(works)
-    if args.all_authors:
-        return Scope(survey=tuple(authors))
-    return _named_scope(args.question, authors)
-
-
-def _named_scope(question: str, authors: Sequence[str]) -> Scope:
-    """Only the authors `question` names: one is a filter, several a comparison."""
-    match authors_named_in(question, authors):
-        case []:
-            return Scope()
-        case [author]:
-            return Scope(author=author, named=(author,))
-        case named:
-            return Scope(survey=tuple(named), named=tuple(named))
+def _scope(args: argparse.Namespace, authors: Sequence[str]) -> Scope:
+    return scope_for(args.question, authors, author=args.author, all_authors=args.all_authors)
 
 
 def _print_scope(scope: Scope) -> None:
     if scope.named:
         print(f"Searching only the authors named in the question: {', '.join(scope.named)}.\n")
-
-
-def _authors(works: Sequence[WorkSpec]) -> list[str]:
-    return sorted({work.author for work in works})
-
-
-def _resolve_author(name: str, works: Sequence[WorkSpec]) -> str:
-    authors = _authors(works)
-    matches = [author for author in authors if name.casefold() in author.casefold()]
-    if len(matches) != 1:
-        raise CommandError(
-            f"--author {name!r} matches {len(matches)} authors; authors: {', '.join(authors)}"
-        )
-    return matches[0]
 
 
 def _snippet(text: str) -> str:
@@ -379,23 +339,21 @@ def _snippet(text: str) -> str:
     return flat[:_SNIPPET_LENGTH].rsplit(" ", 1)[0] + " ..."
 
 
-def _require_index(container: Container) -> None:
-    """Refuse to search an empty index: every query would quietly find nothing."""
-    if container.vector_store.count() == 0:
-        space = container.embedder.space
-        raise CommandError(
-            f"the index for {space.id} is empty; build it first: "
-            f"`APORIA_EMBEDDING__MODEL={space.model} aporia-rag index`"
-        )
-
-
 # --------------------------------------------------------------------------
 # ask
 # --------------------------------------------------------------------------
 
 
 # The stages of an answer, in the order the time report lists them.
-_STAGES = ("rewriting", "retrieval", "grading", "web search", "generation", "revision")
+_STAGES = (
+    "rewriting",
+    "retrieval",
+    "grading",
+    "web search",
+    "generation",
+    "revision",
+    "other authors",
+)
 # How `ask` names each kind of problem the answer checks find (`grading.citations`).
 _PROBLEMS = {
     "citation": "a citation with no passage",
@@ -405,13 +363,13 @@ _PROBLEMS = {
 
 
 def _ask(args: argparse.Namespace, container: Container) -> int:
-    works = load_manifest(args.manifest).works
-    scope = _scope(args, works)
-    _require_index(container)
+    authors = load_manifest(args.manifest).authors
+    scope = _scope(args, authors)
+    container.require_index()
     _print_scope(scope)
     started = perf_counter()
     outcome = container.corrective_rag.answer(
-        args.question, scope, k=args.k, authors=_authors(works)
+        args.question, scope, k=args.k, authors=authors, others=args.others
     )
     if outcome.author_questions:
         print("Asked of each author on their own:")
@@ -433,19 +391,11 @@ def _ask(args: argparse.Namespace, container: Container) -> int:
         print(_nothing_answers(len(outcome.graded)))
     _print_passages("Left out as not relevant:", outcome.left_out)
     _print_passages(f"Not graded, as {ENOUGH} relevant passages came first:", outcome.skipped)
+    _print_passages("Other authors who discuss this:", outcome.others)
     stages = [
         f"{stage} {outcome.seconds[stage]:.1f}s" for stage in _STAGES if stage in outcome.seconds
     ]
-    done = perf_counter()
-    # Asked for, and only next to an answer from the corpus: when the corpus has none, the
-    # graph has searched the web.
-    if args.others and scope.unrestricted and not outcome.web:
-        answered = done
-        others = _other_authors(args.question, container, works, outcome.graded)
-        _print_passages("Other authors who discuss this:", others)
-        done = perf_counter()
-        stages.append(f"other authors {done - answered:.1f}s")
-    print(f"\nanswered in {done - started:.1f}s ({', '.join(stages)})")
+    print(f"\nanswered in {perf_counter() - started:.1f}s ({', '.join(stages)})")
     return 0
 
 
@@ -486,21 +436,6 @@ def _why_the_web(outcome: Outcome) -> str:
     if outcome.web_error is not None:
         return f"{why}, so the web was searched; the search failed ({outcome.web_error})."
     return f"{why}, so the web was searched."
-
-
-def _other_authors(
-    question: str, container: Container, works: Sequence[WorkSpec], found: Sequence[RetrievedChunk]
-) -> list[RetrievedChunk]:
-    """The best relevant passage of each author who had no passage among those found.
-
-    Top-k retrieval can fill every slot with one author (Aristotle has 63
-    chunks on friendship, Cicero 6), so each other author gets a search of
-    their own; the grader, not the similarity score, decides who is listed.
-    """
-    present = {passage.chunk.metadata.author for passage in found}
-    others = [author for author in _authors(works) if author not in present]
-    candidates = container.retriever.best_per_author(question, others, limit=_OTHER_AUTHORS)
-    return container.relevance_grader.relevant(question, candidates)
 
 
 def _label(passage: RetrievedChunk) -> str:
@@ -544,11 +479,14 @@ def _evaluate(args: argparse.Namespace, container: Container) -> int:
         write_retrievals(args.dump, reports, gold)
         print(f"\nretrieved chunks written to {args.dump}")
     if args.answers is not None:
-        _require_index(container)
-        authors = _authors(load_manifest(args.manifest).works)
-        systems = {
-            "plain": _plain_rag(container, authors),
-            "corrective": _corrective_rag(container, authors),
+        container.require_index()
+        authors = load_manifest(args.manifest).authors
+        plain, corrective = container.plain_rag, container.corrective_rag
+        systems: dict[str, System] = {
+            "plain": lambda q: plain.answer(q, scope_for(q, authors), k=DEFAULT_K, authors=authors),
+            "corrective": lambda q: corrective.answer(
+                q, scope_for(q, authors), k=DEFAULT_K, authors=authors
+            ),
         }
         answers = evaluate_answers(systems, gold)
         _print_answers({name: summarize(results) for name, results in answers.items()})
@@ -564,46 +502,13 @@ def _load_gold(paths: Sequence[Path] | None) -> GoldSet:
     return GoldSet(questions=[q for path in paths for q in load_gold_set(path).questions])
 
 
-def _plain_rag(container: Container, authors: Sequence[str]) -> System:
-    """Retrieve the top passages in the question's scope, answer from all of them, check it."""
-
-    def reply(question: str) -> Reply:
-        passages = search_in_scope(
-            container.retriever, question, _named_scope(question, authors), k=_DEFAULT_K
-        )
-        answer = container.generator.answer(question, passages)
-        problems = check_citations(answer, named_in=lambda text: authors_named_in(text, authors))
-        return Reply(answer=answer, route="plain", problems=tuple(p.kind for p in problems))
-
-    return reply
-
-
-def _corrective_rag(container: Container, authors: Sequence[str]) -> System:
-    """The graph, as `ask` runs it with its defaults."""
-
-    def reply(question: str) -> Reply:
-        outcome = container.corrective_rag.answer(
-            question, _named_scope(question, authors), k=_DEFAULT_K, authors=authors
-        )
-        route = "web" if outcome.web else "loop" if outcome.query is not None else "normal"
-        return Reply(
-            answer=outcome.answer,
-            route=route,
-            web=outcome.web,
-            problems=tuple(problem.kind for problem in outcome.problems),
-            revised=bool(outcome.draft_problems),
-        )
-
-    return reply
-
-
 def _evaluate_model(model: str, gold: GoldSet, container: Container) -> RetrievalReport:
     """Evaluate one embedding model on its own index, with otherwise the same settings."""
     settings = container.settings
     embedding = settings.embedding.model_copy(update={"model": model})
     model_settings = settings.model_copy(update={"embedding": embedding})
     with Container(model_settings, transport=container.transport) as model_container:
-        _require_index(model_container)
+        model_container.require_index()
         return evaluate_retrieval(model_container.retriever, gold)
 
 
@@ -703,7 +608,7 @@ def _print_answers(summaries: dict[str, Summary]) -> None:
     first = next(iter(summaries.values()))
     print(
         f"\nanswers to {first.questions} gold questions ({first.in_corpus} with evidence, "
-        f"{first.outside} without), plain RAG from the top {_DEFAULT_K} passages\n"
+        f"{first.outside} without), plain RAG from the top {DEFAULT_K} passages\n"
     )
     columns = [max(len(name), 5) + 2 for name in summaries]
 
@@ -722,6 +627,7 @@ def _print_answers(summaries: dict[str, Summary]) -> None:
     print(f"outside questions answered (of {first.outside})")
     row("  from the corpus", [summary.outside_from_corpus for summary in every])
     row("  from the web", [summary.outside_from_web for summary in every])
+    row("  not answered", [summary.outside_unanswered for summary in every])
     row("answers with a check problem", [summary.flagged for summary in every])
     row("  written again", [summary.revised for summary in every])
     row("median seconds per question", [f"{summary.median_seconds:.1f}" for summary in every])

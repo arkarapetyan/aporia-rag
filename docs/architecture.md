@@ -7,17 +7,17 @@ src/aporia_rag/
 ├── domain/        Pure core: models, errors, ports (Protocols). Depends only on pydantic.
 ├── ingestion/     Raw text -> Documents -> Chunks. Depends on domain.
 ├── indexing/      Keeps the vector index in step with the corpus. Depends on domain ports.
-├── retrieval/     Question -> nearest chunks; rewriting a question for search. Depends on domain ports.
+├── retrieval/     Question -> nearest chunks; scope rules; rewriting a question. Depends on domain ports.
 ├── adapters/      Ollama, Chroma and ddgs (later Google...) implementations of the ports.
-├── graph/         The corrective loop (LangGraph): retrieve, grade, rewrite once, web, generate.
-├── evaluation/    Gold questions and metrics: retrieval (Hit@k, MRR) and the grader now, answers later.
+├── pipelines/     Plain RAG, and the corrective loop (LangGraph): grade, rewrite once, web, check.
+├── evaluation/    Gold questions and metrics: retrieval (Hit@k, MRR), the grader, answers.
 ├── config.py      Settings from the environment / .env.
 ├── bootstrap.py   Composition root: provider registries and the Container that builds everything.
 └── cli.py         `aporia-rag fetch | index | search | ask | evaluate`.
 ```
 
 **Rule:** dependencies point inward. `domain` imports nothing from the other packages;
-`indexing`, `retrieval`, `generation` and `graph` talk to models and stores only through the
+`indexing`, `retrieval`, `generation` and `pipelines` talk to models and stores only through the
 `Protocol`s in `domain/ports.py`, never through Ollama/Chroma/ddgs types directly. Only
 `adapters/` imports provider libraries, and only `bootstrap.py` knows which adapter is in use.
 
@@ -27,14 +27,14 @@ place where a provider's API meets our interfaces. What must hold is that nothin
 **Enforced, not just documented.** The rules are [import-linter](https://import-linter.readthedocs.io)
 contracts in `pyproject.toml`, checked by `tests/unit/test_architecture.py` on every test run:
 
-- *layers*: `cli` > `bootstrap` > `graph` > {`adapters`, `config`, `evaluation`, `generation`,
+- *layers*: `cli` > `bootstrap` > `pipelines` > {`adapters`, `config`, `evaluation`, `generation`,
   `grading`, `indexing`, `ingestion`, `retrieval`} > `domain`. Nothing imports a layer above it, and
   the middle packages do not import each other: the indexer reaches Chroma only through the
-  `VectorStore` port. `graph` sits above the components it calls and below the composition root that
+  `VectorStore` port. `pipelines` sits above the components it calls and below the composition root that
   builds it.
 - *provider-libraries*: `chromadb` and `ollama` are imported by `adapters` only, directly or
   indirectly.
-- *orchestration-framework*: `langgraph` is imported by `graph` only.
+- *orchestration-framework*: `langgraph` is imported by `pipelines.corrective` only.
 
 A violation fails the build with the offending import chain, e.g.
 `aporia_rag.indexing.indexer -> aporia_rag.adapters.chroma -> chromadb`.
@@ -180,7 +180,7 @@ Adding a provider is open/closed:
    fixture parameter in `tests/unit/adapters/test_vector_store_contract.py`.
 4. Configure it: `APORIA_EMBEDDING__PROVIDER=google`.
 
-Nothing in `indexing/`, `retrieval/` or (later) `graph/` changes. Settings `provider` fields are
+Nothing in `indexing/`, `retrieval/` or `pipelines/` changes. Settings `provider` fields are
 plain strings for the same reason: an enum of today's providers would have to be edited for each
 new one. Factories receive an optional `httpx` transport, which every HTTP-based SDK can take; it
 is how the CLI tests run whole commands with no network.
@@ -343,7 +343,7 @@ one author's view of another ("What does Aristotle say about Plato's forms?") su
 
 ## The corrective graph
 
-**Grade, then search again only when nothing answers.** `graph.CorrectiveRAG` runs the loop that
+**Grade, then search again only when nothing answers.** `pipelines.CorrectiveRAG` runs the loop that
 `ask` used to run inline: retrieve, grade every passage, and answer from the ones kept. When the
 grader keeps none, it does not answer from noise: `retrieval.QueryRewriter` writes one search query
 in the corpus's vocabulary, the graph searches again with the same `k` and author filter, grades

@@ -3,7 +3,7 @@
 Everything else depends on the ports in `domain.ports`; only this module
 knows that "ollama" means `OllamaEmbedder` or `OllamaChatModel`, "chroma"
 means `ChromaVectorStore` and "ddgs" means `DdgsWebSearch`. Entry points
-(the CLI now; a UI later) get their components from a `Container` instead of
+(the CLI and the web UI) get their components from a `Container` instead of
 wiring them themselves.
 
 Providers are looked up by name in registries, so adding one (open/closed
@@ -41,9 +41,10 @@ from aporia_rag.domain.models import EmbeddingSpace
 from aporia_rag.domain.ports import ChatModel, Chunker, Embedder, VectorStore, WebSearch
 from aporia_rag.generation.generator import Generator
 from aporia_rag.grading.relevance import RelevanceGrader
-from aporia_rag.graph.corrective import CorrectiveRAG
 from aporia_rag.indexing.indexer import Indexer
 from aporia_rag.ingestion.chunker import RecursiveChunker
+from aporia_rag.pipelines.corrective import CorrectiveRAG
+from aporia_rag.pipelines.plain import PlainRAG
 from aporia_rag.retrieval.retriever import Retriever
 from aporia_rag.retrieval.rewriter import QueryRewriter
 
@@ -206,6 +207,19 @@ class Container:
             self.query_rewriter,
             self.web_search,
         )
+
+    @cached_property
+    def plain_rag(self) -> PlainRAG:
+        return PlainRAG(self.retriever, self.generator)
+
+    def require_index(self) -> None:
+        """Refuse to search an empty index: every query would quietly find nothing."""
+        if self.vector_store.count() == 0:
+            space = self.embedder.space
+            raise ConfigurationError(
+                f"the index for {space.id} is empty; build it first: "
+                f"`APORIA_EMBEDDING__MODEL={space.model} aporia-rag index`"
+            )
 
     def _owned[T](self, component: T) -> T:
         if isinstance(component, _Closeable):

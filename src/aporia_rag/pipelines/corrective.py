@@ -8,7 +8,7 @@ again in the same scope, and grades what is new. If that finds nothing
 either, it searches the web, the last resort, and grades the pages the same
 way. When even they do not answer, the outcome says so.
 
-    START -> [ask_each_author] -> retrieve -> grade -> generate -> check -> END
+    START -> [ask_each_author] -> retrieve -> grade -> generate -> check -> [other_authors] -> END
                                                                   |   ^
                                     (problems, the first time)    +-> revise
 
@@ -48,12 +48,17 @@ author named. With problems, the answer is written once more with them
 listed (one more call, measured on 2026-10-21: 13 of 48 answers flagged),
 and what remains is reported with it.
 
+Asked for (`others=True`), and only beside an answer from the corpus to an
+unrestricted question, the best passage of up to `OTHER_AUTHORS` authors who
+had none among those graded is graded too, and the relevant ones are listed:
+top-k retrieval can fill every place with one author (Aristotle has 63 chunks
+on friendship, Cicero 6).
+
 LangGraph states the loop as nodes and conditional edges, so the web
-fallback is one node and three edges. It is the only package that uses it.
+fallback is one node and three edges. This module is the only one that uses it.
 """
 
-from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from collections.abc import Sequence
 from time import perf_counter
 from typing import Final, TypedDict
 
@@ -66,9 +71,11 @@ from aporia_rag.domain.ports import WebSearch
 from aporia_rag.generation.generator import Generator
 from aporia_rag.grading.citations import Problem, check_citations
 from aporia_rag.grading.relevance import RelevanceGrader
+from aporia_rag.pipelines.outcome import Outcome, Route
 from aporia_rag.retrieval.names import authors_named_in
 from aporia_rag.retrieval.retriever import Retriever
 from aporia_rag.retrieval.rewriter import QueryRewriter
+from aporia_rag.retrieval.scope import Scope, search
 
 _ASK_EACH_AUTHOR: Final = "ask_each_author"
 _RETRIEVE: Final = "retrieve"
@@ -78,58 +85,12 @@ _WEB_SEARCH: Final = "web_search"
 _GENERATE: Final = "generate"
 _CHECK: Final = "check"
 _REVISE: Final = "revise"
+_OTHER_AUTHORS: Final = "other_authors"
 
 ENOUGH: Final = 2  # relevant passages after which grading stops (not in a survey)
-
-
-@dataclass(frozen=True, slots=True)
-class Scope:
-    """Whose passages answer the question, and how many of each."""
-
-    author: str | None = None  # the k best passages of this author only
-    survey: tuple[str, ...] = ()  # instead, the best passage of each of these authors
-    named: tuple[str, ...] = ()  # the authors named in the question, when they set the scope
-
-    @property
-    def unrestricted(self) -> bool:
-        """The k best passages of any author: the one scope that can miss other authors."""
-        return self.author is None and not self.survey
-
-    @property
-    def compares(self) -> bool:
-        """Two or more authors named in the question: each is asked about on their own."""
-        return len(self.named) > 1
-
-
-def search(retriever: Retriever, question: str, scope: Scope, *, k: int) -> list[RetrievedChunk]:
-    """The passages for `question` in its scope, best first: as `search` shows them."""
-    if scope.survey:
-        return retriever.best_per_author(question, scope.survey, limit=len(scope.survey))
-    filters = None if scope.author is None else {"author": scope.author}
-    return retriever.search(question, k=k, filters=filters)
-
-
-@dataclass(frozen=True, slots=True)
-class Outcome:
-    """What the graph did for one question, and what it found."""
-
-    answer: Answer | None  # None: no passage found answers the question
-    graded: tuple[RetrievedChunk, ...]  # every passage graded, in the order found
-    relevant: tuple[RetrievedChunk, ...]  # those judged relevant: the answer's sources
-    skipped: tuple[RetrievedChunk, ...] = ()  # found, not graded: ENOUGH relevant came first
-    query: str | None = None  # the rewritten query, when the corpus was searched again with it
-    outside_author: str | None = None  # what the rewriter named, when no author in the corpus
-    web: bool = False  # the web was searched: the answer's sources, if any, are web pages
-    web_error: str | None = None  # why the web search failed, if it did
-    author_questions: tuple[str, ...] = ()  # a comparison: the question asked of each author
-    draft_problems: tuple[Problem, ...] = ()  # found in the first answer: it was written again
-    problems: tuple[Problem, ...] = ()  # found in the answer given, the second if there was one
-    seconds: Mapping[str, float] = field(default_factory=dict)  # by stage: retrieval, grading...
-
-    @property
-    def left_out(self) -> tuple[RetrievedChunk, ...]:
-        """The passages graded and judged not relevant, in the order found."""
-        return tuple(passage for passage in self.graded if passage not in self.relevant)
+# How many other authors are graded when asked for: each verdict is one model call (2-4 s on an
+# 8 GB laptop GPU), so this bounds the extra wait.
+OTHER_AUTHORS: Final = 4
 
 
 class _State(TypedDict, total=False):
@@ -150,6 +111,8 @@ class _State(TypedDict, total=False):
     draft_problems: list[Problem]
     problems: list[Problem]
     revised: bool
+    want_others: bool  # the reader asked for other authors' passages
+    others: list[RetrievedChunk]
     seconds: dict[str, float]
 
 
@@ -171,8 +134,20 @@ class CorrectiveRAG:
         self._web = web
         self._graph = self._build()
 
-    def answer(self, question: str, scope: Scope, *, k: int, authors: Sequence[str]) -> Outcome:
-        """Run the loop for `question`; `authors` are the corpus's, for the rewriter."""
+    def answer(
+        self,
+        question: str,
+        scope: Scope,
+        *,
+        k: int,
+        authors: Sequence[str],
+        others: bool = False,
+    ) -> Outcome:
+        """Run the loop for `question`; `authors` are the corpus's, for the rewriter.
+
+        With `others`, also list other authors who discuss the question (see
+        the module's notes).
+        """
         start: _State = {
             "question": question,
             "scope": scope,
@@ -190,11 +165,14 @@ class CorrectiveRAG:
             "draft_problems": [],
             "problems": [],
             "revised": False,
+            "want_others": others,
+            "others": [],
             "seconds": {},
         }
         end: _State = self._graph.invoke(start)  # type: ignore[assignment]
         return Outcome(
             answer=end["answer"],
+            route=_route(end),
             graded=tuple(end["graded"]),
             relevant=tuple(end["relevant"]),
             skipped=tuple(end["skipped"]),
@@ -205,6 +183,7 @@ class CorrectiveRAG:
             author_questions=tuple(end["author_questions"].values()),
             draft_problems=tuple(end["draft_problems"]),
             problems=tuple(end["problems"]),
+            others=tuple(end["others"]),
             seconds=dict(end["seconds"]),
         )
 
@@ -218,6 +197,7 @@ class CorrectiveRAG:
         graph.add_node(_GENERATE, self._generate)
         graph.add_node(_CHECK, self._check)
         graph.add_node(_REVISE, self._revise)
+        graph.add_node(_OTHER_AUTHORS, self._other_authors)
         graph.add_conditional_edges(START, self._first_step, [_ASK_EACH_AUTHOR, _RETRIEVE])
         graph.add_edge(_ASK_EACH_AUTHOR, _RETRIEVE)
         graph.add_edge(_RETRIEVE, _GRADE)
@@ -227,8 +207,9 @@ class CorrectiveRAG:
         graph.add_conditional_edges(_REWRITE, self._after_rewrite, [_RETRIEVE, _WEB_SEARCH])
         graph.add_edge(_WEB_SEARCH, _GRADE)
         graph.add_edge(_GENERATE, _CHECK)
-        graph.add_conditional_edges(_CHECK, self._after_check, [_REVISE, END])
+        graph.add_conditional_edges(_CHECK, self._after_check, [_REVISE, _OTHER_AUTHORS, END])
         graph.add_edge(_REVISE, _CHECK)
+        graph.add_edge(_OTHER_AUTHORS, END)
         return graph.compile()
 
     # -- routing ------------------------------------------------------------
@@ -253,7 +234,11 @@ class CorrectiveRAG:
 
     @staticmethod
     def _after_check(state: _State) -> str:
-        return _REVISE if state["problems"] and not state["revised"] else END  # once
+        if state["problems"] and not state["revised"]:
+            return _REVISE  # once
+        # Only beside an answer from the corpus: the web was searched because the corpus had none.
+        wanted = state["want_others"] and state["scope"].unrestricted and not state["web"]
+        return _OTHER_AUTHORS if wanted else END
 
     # -- nodes --------------------------------------------------------------
 
@@ -337,6 +322,14 @@ class CorrectiveRAG:
             return {"problems": problems}
         return {"problems": problems, "draft_problems": problems}
 
+    def _other_authors(self, state: _State) -> _State:
+        started = perf_counter()
+        present = {passage.chunk.metadata.author for passage in state["graded"]}
+        absent = [author for author in state["authors"] if author not in present]
+        candidates = self._retriever.best_per_author(state["question"], absent, limit=OTHER_AUTHORS)
+        others = self._grader.relevant(state["question"], candidates)
+        return {"others": others, "seconds": _add(state, "other authors", started)}
+
     def _revise(self, state: _State) -> _State:
         started = perf_counter()
         draft = state["answer"]
@@ -353,6 +346,12 @@ def _checked(state: _State) -> list[Problem]:
         return []
     authors = state["authors"]
     return check_citations(answer, named_in=lambda text: authors_named_in(text, authors))
+
+
+def _route(state: _State) -> Route:
+    if state["web"]:
+        return "web"
+    return "loop" if state["query"] is not None else "normal"
 
 
 def _add(state: _State, stage: str, started: float) -> dict[str, float]:

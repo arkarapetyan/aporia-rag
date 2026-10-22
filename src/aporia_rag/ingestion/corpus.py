@@ -65,6 +65,11 @@ class CorpusManifest(BaseModel):
 
     works: list[WorkSpec]
 
+    @property
+    def authors(self) -> tuple[str, ...]:
+        """The works' authors, each once, sorted."""
+        return tuple(sorted({work.author for work in self.works}))
+
     @model_validator(mode="after")
     def _ids_are_unique(self) -> Self:
         _reject_duplicates("work id", [work.id for work in self.works])

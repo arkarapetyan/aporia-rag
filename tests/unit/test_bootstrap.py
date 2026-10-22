@@ -42,7 +42,7 @@ from aporia_rag.domain.models import (
     web_passage,
 )
 from aporia_rag.domain.ports import Embedder
-from aporia_rag.graph.corrective import Scope
+from aporia_rag.retrieval.scope import Scope
 from support.builders import make_chunk
 from support.fakes import FakeOllamaServer, HashingEmbedder, ScriptedWebSearch
 
@@ -340,3 +340,25 @@ def test_builds_the_ddgs_web_search_by_default_once_and_only_when_used(
 
     assert isinstance(container.web_search, DdgsWebSearch)
     assert container.web_search is container.web_search
+
+
+def test_require_index_refuses_an_empty_index_and_passes_a_built_one(
+    tmp_path: Path,
+) -> None:  # 30.9
+    container = Container(_container_settings(tmp_path), transport=FakeOllamaServer().transport)
+
+    with pytest.raises(ConfigurationError, match=r"is empty; build it first: `APORIA_EMBEDDING__"):
+        container.require_index()
+
+    container.indexer.run(
+        [
+            Document(
+                id="kant/first-section",
+                text="Nothing can be called good without qualification, except a good will.",
+                metadata=SourceMetadata(
+                    author="Immanuel Kant", title="Groundwork", source_id="test:kant"
+                ),
+            )
+        ]
+    )
+    container.require_index()  # no error

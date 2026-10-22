@@ -1010,6 +1010,41 @@ was written again), declared next to it. The CLI, the composition root, builds b
 | 29.9 | The corrective system is the graph: its verdicts, rewrites and web searches happen, and its route, web flag, final problems and second draft are what the reply reports |
 | 29.10 | `--gold` given twice evaluates both sets as one; without `--answers`, no answer is requested (23.8) |
 
+## A second entry point: component 30
+
+A web UI is next to the CLI, and it needs the same behaviour: which authors a question covers,
+when other authors are looked for, the empty-index check. Those rules were in `cli.py`, where a
+second entry point would have to copy them (Aren, 2026-10-22: "it is a behavioural thing, not
+really connected to the CLI itself"). They move, unchanged, to the packages that own them, and the
+CLI keeps only arguments and printing:
+
+- **Scope** (`retrieval.scope`): `Scope`, `search` (from the graph), `scope_for` (from the CLI's
+  `_scope` and `_named_scope`), `resolve_author` and `DEFAULT_K`; the manifest lists its authors.
+- **Other authors** (`pipelines.corrective`): asked for with `others=True`; the rule of when they
+  are looked for leaves the CLI, and the result is part of the `Outcome`.
+- **Plain RAG** (`pipelines.plain`): the evaluation's baseline, a pipeline beside the corrective
+  one, returning the same `Outcome`, which now says which route it took. The package `graph` is
+  renamed `pipelines`, since it holds two pipelines and only one is built with LangGraph.
+- **The empty-index check** (`bootstrap.Container.require_index`).
+
+The evaluation reads a pipeline's `Outcome` through a protocol (`Run`) declared next to it, as it
+reads the retriever through `Searcher`, so its own `Reply` type goes.
+
+## Component 30: Shared rules (`aporia_rag.retrieval.scope`, `aporia_rag.pipelines`, `aporia_rag.bootstrap`)
+
+| # | Test |
+|---|---|
+| 30.1 | `scope_for` with `author` gives that author's scope, the name matched in any case and in part ("hobbes"); a name that matches no author or several is an `UnknownAuthorError` that lists the authors |
+| 30.2 | `scope_for` with `all_authors` gives a survey of every author |
+| 30.3 | Without either, `scope_for` gives the authors the question names: none is unrestricted, one is that author's scope, several are a comparison; `named` records them |
+| 30.4 | `search` takes the k best passages, of the scope's author when it has one, or each surveyed author's best passage |
+| 30.5 | The manifest's `authors` are its works' authors, each once, sorted |
+| 30.6 | `CorrectiveRAG.answer(..., others=True)` grades the best passage of up to 4 authors with no passage among those graded and keeps the relevant ones in `Outcome.others`, timed as "other authors"; not asked for, or in an author's scope, a survey, or after a web search, it looks for none |
+| 30.7 | `Outcome.route` is "normal" when the first search answered, "loop" after a second corpus search, "web" after a web search |
+| 30.8 | `PlainRAG.answer` answers from every passage `search` finds (one answer call, no verdict), checks the answer with the citation checks, never writes it again, and reports the route "plain" with the times of retrieval and generation |
+| 30.9 | `Container.require_index` raises a `ConfigurationError` naming the command that builds the index when the index is empty, and passes when it is not |
+| 30.10 | `evaluate --answers` also counts the outside questions left without an answer |
+
 ## Architecture rules (`tests/unit/test_architecture.py`, run in the default suite)
 
 The dependency rules of [architecture.md](architecture.md) are checked by

@@ -826,10 +826,11 @@ def test_ask_reports_how_long_retrieval_and_generation_took(
     server = FakeOllamaServer()
     _index(index_manifest, settings, server)
     capsys.readouterr()
-    clock = iter([100.0, 113.0, 115.1])  # start, answered, other authors done
+    clock = iter([100.0, 115.1])  # start, done
     monkeypatch.setattr("aporia_rag.cli.perf_counter", lambda: next(clock))
-    stages = iter([0.0, 0.4, 0.4, 6.4, 6.4, 12.9])  # retrieve, grade, generate: start and end
-    monkeypatch.setattr("aporia_rag.graph.corrective.perf_counter", lambda: next(stages))
+    # retrieve, grade, generate, other authors: start and end of each
+    stages = iter([0.0, 0.4, 0.4, 6.4, 6.4, 12.9, 12.9, 15.0])
+    monkeypatch.setattr("aporia_rag.pipelines.corrective.perf_counter", lambda: next(stages))
 
     exit_code = _run(
         "ask", GOOD_WILL_QUESTION, "--others",
@@ -1337,6 +1338,7 @@ def test_evaluate_answers_compares_plain_and_corrective_rag(
         r"^outside questions answered \(of 1\)$",
         r"^  from the corpus +1 +0$",
         r"^  from the web +0 +1$",
+        r"^  not answered +0 +0$",
         r"^answers with a check problem +3 +2$",
         r"^  written again +0 +2$",
         r"^median seconds per question +\d+\.\d +\d+\.\d$",

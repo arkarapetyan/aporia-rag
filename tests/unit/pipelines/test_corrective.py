@@ -1,5 +1,6 @@
-"""Tests for aporia_rag.graph.corrective, the corrective loop (test plan: 25.1-25.7, 26.4-26.8, 27,
-28.7-28.9).
+"""Tests for aporia_rag.pipelines.corrective, the corrective loop.
+
+Test plan: 25.1-25.7, 26.4-26.8, 27, 28.7-28.9, 30.6-30.7.
 
 The graph runs the real retriever, grader, generator and rewriter over
 in-memory fakes: the hashing embedder ranks passages by the words they share
@@ -23,9 +24,11 @@ from aporia_rag.domain.ports import IndexRecord
 from aporia_rag.generation.generator import ANSWER_PROMPT, SURVEY_PROMPT, Generator
 from aporia_rag.grading.relevance import SYSTEM_PROMPT as GRADING_PROMPT
 from aporia_rag.grading.relevance import RelevanceGrader
-from aporia_rag.graph.corrective import CorrectiveRAG, Outcome, Scope
+from aporia_rag.pipelines.corrective import CorrectiveRAG
+from aporia_rag.pipelines.outcome import Outcome
 from aporia_rag.retrieval.retriever import Retriever
 from aporia_rag.retrieval.rewriter import SUBJECT_PROMPT, QueryRewriter
+from aporia_rag.retrieval.scope import Scope
 from support.builders import make_chunk
 from support.fakes import (
     HashingEmbedder,
@@ -120,8 +123,10 @@ class Setup:
     web: ScriptedWebSearch
     retriever: Retriever
 
-    def answer(self, question: str, scope: Scope | None = None, *, k: int = 1) -> Outcome:
-        return self.graph.answer(question, scope or Scope(), k=k, authors=AUTHORS)
+    def answer(
+        self, question: str, scope: Scope | None = None, *, k: int = 1, others: bool = False
+    ) -> Outcome:
+        return self.graph.answer(question, scope or Scope(), k=k, authors=AUTHORS, others=others)
 
     def calls(self) -> list[str]:
         """The kind of every model call so far, in order."""
@@ -295,7 +300,7 @@ def test_a_comparison_asks_about_each_author_on_their_own() -> None:  # 25.6
 
 def _clock(monkeypatch: pytest.MonkeyPatch, *times: float) -> None:
     ticks: Iterator[float] = iter(times)
-    monkeypatch.setattr("aporia_rag.graph.corrective.perf_counter", lambda: next(ticks))
+    monkeypatch.setattr("aporia_rag.pipelines.corrective.perf_counter", lambda: next(ticks))
 
 
 def test_the_outcome_records_how_long_each_stage_took(
@@ -505,3 +510,58 @@ def test_the_revision_is_timed_as_a_stage_of_its_own(
         "generation": 4.0,
         "revision": 3.5,
     }
+
+
+def test_other_authors_asked_for_are_graded_and_the_relevant_ones_listed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:  # 30.6
+    # retrieve, grade, generate, other authors: a start and an end each
+    _clock(monkeypatch, 0.0, 0.5, 0.5, 2.0, 2.0, 6.0, 6.0, 8.5)
+    setup = _setup(Script(keep=_only(KANT, MILL)))
+
+    outcome = setup.answer(GOOD_WILL, others=True)  # k=1: Kant only
+
+    # The authors with no passage graded: Mill and Hobbes, one verdict each.
+    assert setup.calls() == ["verdict", "answer", "verdict", "verdict"]
+    assert _chunks(outcome.others) == [MILL.id]
+    assert outcome.seconds["other authors"] == 2.5
+    assert _chunks(outcome.relevant) == [KANT.id]  # the answer is unchanged
+
+
+@pytest.mark.parametrize(
+    ("scope", "keep", "others"),
+    [
+        (Scope(), _only(KANT, MILL), False),
+        (Scope(author="Immanuel Kant"), _only(KANT, MILL), True),
+        (Scope(survey=AUTHORS), _only(KANT, MILL), True),
+        (Scope(), _only(PAGE), True),  # nothing in the corpus: the web answered
+    ],
+    ids=["not-asked", "one-author", "survey", "after-the-web"],
+)
+def test_other_authors_are_looked_for_only_beside_an_unrestricted_corpus_answer(
+    scope: Scope, keep: Callable[[Chunk], bool], others: bool
+) -> None:  # 30.6
+    setup = _setup(Script(keep=keep), web=ScriptedWebSearch(PAGES))
+
+    outcome = setup.answer(GOOD_WILL, scope, others=others)
+
+    assert outcome.answer is not None
+    assert outcome.others == ()
+    assert "other authors" not in outcome.seconds
+
+
+@pytest.mark.parametrize(
+    ("script", "route"),
+    [
+        (Script(keep=_only(KANT)), "normal"),
+        (Script(keep=_only(HOBBES)), "loop"),  # found by the rewritten query
+        (Script(keep=_only(PAGE)), "web"),
+    ],
+    ids=["normal", "loop", "web"],
+)
+def test_the_outcome_names_the_route_taken(script: Script, route: str) -> None:  # 30.7
+    setup = _setup(script, web=ScriptedWebSearch(PAGES))
+
+    outcome = setup.answer(GOOD_WILL)
+
+    assert outcome.route == route
