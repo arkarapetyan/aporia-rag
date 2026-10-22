@@ -14,6 +14,7 @@ from typing import Any
 
 import httpx
 import pytest
+from fastapi.testclient import TestClient
 
 from aporia_rag.cli import main
 from aporia_rag.config import ChatSettings, Settings, StorageSettings
@@ -1405,3 +1406,30 @@ def test_the_corrective_system_is_the_graph(
         "What is the life of man like without a common power?",
         "What is a language game?",
     ]
+
+
+# --------------------------------------------------------------------------
+# serve (Component 31)
+# --------------------------------------------------------------------------
+
+
+def test_serve_runs_the_web_ui_on_the_host_and_port_given(
+    index_manifest: Path,
+    settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:  # 31.10
+    runs: list[tuple[object, dict[str, object]]] = []
+    monkeypatch.setattr("uvicorn.run", lambda app, **options: runs.append((app, options)))
+
+    exit_code = _run(
+        "serve", "--port", "8123",
+        manifest=index_manifest, settings=settings, transport=FakeOllamaServer().transport,
+    )  # fmt: skip
+
+    assert exit_code == 0
+    [(app, options)] = runs
+    assert options == {"host": "127.0.0.1", "port": 8123, "log_level": "warning"}
+    authors = TestClient(app).get("/api/authors").json()["authors"]  # type: ignore[arg-type]
+    assert authors == ["Immanuel Kant", "Thomas Hobbes"]  # the manifest given
+    assert "http://127.0.0.1:8123" in capsys.readouterr().out

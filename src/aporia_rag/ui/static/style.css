@@ -1,0 +1,575 @@
+/* AporiaRAG: manuscript pigments on cool paper. Lapis marks the route taken and every
+   link to a passage; verdigris marks what was kept; rubric red is kept for problems. */
+
+:root {
+  --paper: #f1f3f6;
+  --ink: #1a2238;
+  --graphite: #5a6378;
+  --hairline: #cdd3de;
+  --lapis: #2b4cc4;
+  --lapis-wash: #dfe5f8;
+  --verdigris: #2d7a6b;
+  --rubric: #b23a2e;
+  --rubric-wash: #f6e3e0;
+
+  --serif: "Alegreya", "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+  --sans: "Alegreya Sans", "Gill Sans", "Segoe UI", system-ui, sans-serif;
+
+  /* A 1.25 scale on a 17px text size */
+  --step--1: 0.8rem;
+  --step-0: 1rem;
+  --step-1: 1.25rem;
+  --step-2: 1.563rem;
+  --step-3: 1.953rem;
+  --step-4: 2.441rem;
+
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #121829;
+    --ink: #e4e8f1;
+    --graphite: #9aa3b8;
+    --hairline: #2a3350;
+    --lapis: #8fa8ff;
+    --lapis-wash: #1e2a52;
+    --verdigris: #6cc4b1;
+    --rubric: #f08a7e;
+    --rubric-wash: #3a2024;
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  font-size: 106.25%; /* 17px */
+}
+
+body {
+  margin: 0;
+  padding: 0 clamp(1rem, 4vw, 3rem);
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--serif);
+  font-size: var(--step-0);
+  line-height: 1.55;
+  font-variant-numeric: oldstyle-nums proportional-nums;
+}
+
+.masthead,
+main,
+.colophon {
+  max-width: 72rem;
+  margin: 0 auto;
+}
+
+[hidden] {
+  display: none !important; /* over the layout's own display values */
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+:focus-visible {
+  outline: 2px solid var(--lapis);
+  outline-offset: 3px;
+}
+
+/* -- Masthead ------------------------------------------------------------ */
+
+.masthead {
+  padding: clamp(2rem, 6vw, 4rem) 0 1.5rem;
+}
+
+.wordmark {
+  margin: 0;
+  font-size: clamp(var(--step-3), 7vw, 3.6rem);
+  font-style: italic;
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: -0.01em;
+}
+
+.lede {
+  max-width: 38rem;
+  margin: 0.75rem 0 0;
+  color: var(--graphite);
+  font-size: var(--step-1);
+  line-height: 1.4;
+}
+
+/* -- The question -------------------------------------------------------- */
+
+.ask {
+  padding-bottom: 2rem;
+  border-bottom: 1px solid var(--hairline);
+}
+
+#question {
+  display: block;
+  width: 100%;
+  padding: 0.4rem 0;
+  border: 0;
+  border-bottom: 2px solid var(--ink);
+  background: transparent;
+  color: var(--ink);
+  font: 400 var(--step-2) / 1.35 var(--serif);
+  resize: vertical;
+}
+
+#question::placeholder {
+  color: var(--graphite);
+  font-style: italic;
+  opacity: 0.8;
+}
+
+#question:focus-visible {
+  outline: none;
+  border-bottom-color: var(--lapis);
+}
+
+.examples {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 1rem;
+  align-items: baseline;
+  margin: 0.9rem 0 1.4rem;
+  font-family: var(--sans);
+  font-size: var(--step--1);
+}
+
+.examples-intro {
+  color: var(--graphite);
+}
+
+.example {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--lapis);
+  font: inherit;
+  font-style: italic;
+  text-align: left;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--lapis) 35%, transparent);
+  text-underline-offset: 0.2em;
+  cursor: pointer;
+}
+
+.example:hover {
+  text-decoration-color: currentColor;
+}
+
+.options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem 1.75rem;
+  align-items: end;
+  font-family: var(--sans);
+  font-size: 0.94rem;
+}
+
+.option {
+  display: grid;
+  gap: 0.2rem;
+  color: var(--graphite);
+}
+
+.option select,
+.option input[type="number"] {
+  min-height: 2.4rem;
+  padding: 0.3rem 0.5rem;
+  border: 1px solid var(--hairline);
+  border-radius: 3px;
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+}
+
+.option input[type="number"] {
+  width: 4.5rem;
+}
+
+.option-check {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  min-height: 2.4rem;
+}
+
+.option-check input {
+  width: 1.05rem;
+  height: 1.05rem;
+  accent-color: var(--lapis);
+}
+
+.submit {
+  min-height: 2.6rem;
+  margin-left: auto;
+  padding: 0.4rem 1.6rem;
+  border: 0;
+  border-radius: 3px;
+  background: var(--ink);
+  color: var(--paper);
+  font: 500 var(--step-0) var(--sans);
+  cursor: pointer;
+}
+
+.submit:hover {
+  background: var(--lapis);
+}
+
+.submit:disabled {
+  background: var(--graphite);
+  cursor: progress;
+}
+
+/* -- The route ----------------------------------------------------------- */
+
+.section-title {
+  margin: 0 0 0.6rem;
+  font-family: var(--sans);
+  font-size: var(--step-0);
+  font-weight: 700;
+}
+
+.route {
+  padding: 2rem 0;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.route-help {
+  max-width: 40rem;
+  margin: 0 0 1rem;
+  color: var(--graphite);
+  font-family: var(--sans);
+  font-size: 0.94rem;
+}
+
+.map {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 11rem;
+  font-family: var(--sans);
+}
+
+.map .track {
+  fill: none;
+  stroke: var(--hairline);
+  stroke-width: 3;
+  stroke-linecap: round;
+}
+
+.map .track-detour {
+  stroke-dasharray: 2 7;
+}
+
+.map .taken {
+  fill: none;
+  stroke: var(--lapis);
+  stroke-width: 4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.map .station circle {
+  fill: var(--paper);
+  stroke: var(--hairline);
+  stroke-width: 3;
+}
+
+.map .station text {
+  fill: var(--graphite);
+  font-size: 13px;
+  text-anchor: middle;
+}
+
+.map .station.main text {
+  fill: var(--ink);
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.map .station.visited circle {
+  fill: var(--lapis);
+  stroke: var(--lapis);
+}
+
+.map .station.visited text {
+  fill: var(--ink);
+}
+
+.map .station.waiting circle {
+  stroke: var(--lapis);
+  animation: waiting 1.1s ease-in-out infinite;
+}
+
+@keyframes waiting {
+  50% {
+    stroke-width: 7;
+  }
+}
+
+.steps {
+  max-width: 44rem;
+  margin: 1.25rem 0 0;
+  padding: 0;
+  list-style: none;
+  font-family: var(--sans);
+  font-size: 0.94rem;
+}
+
+.steps li {
+  display: flex;
+  gap: 1rem;
+  justify-content: space-between;
+  padding: 0.3rem 0;
+  border-bottom: 1px dotted var(--hairline);
+}
+
+.steps .seconds {
+  flex: none;
+  color: var(--graphite);
+  font-variant-numeric: lining-nums tabular-nums;
+}
+
+.steps .working {
+  color: var(--graphite);
+  font-style: italic;
+}
+
+/* -- The answer and its apparatus ---------------------------------------- */
+
+.result {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 2.5rem;
+  padding: 2rem 0 3rem;
+}
+
+@media (min-width: 900px) {
+  .result {
+    grid-template-columns: minmax(0, 38rem) minmax(0, 1fr);
+    gap: 3.5rem;
+  }
+}
+
+.answer-text {
+  font-size: 1.12rem;
+  line-height: 1.65;
+  hyphens: auto;
+}
+
+.answer-text p {
+  margin: 0 0 1em;
+}
+
+.answer-text h3 {
+  margin: 1.4em 0 0.3em;
+  font-size: var(--step-1);
+  font-weight: 500;
+  font-style: italic;
+}
+
+.answer-text h3:first-child {
+  margin-top: 0;
+}
+
+.cite {
+  color: var(--lapis);
+  font-family: var(--sans);
+  font-size: 0.82em;
+  font-weight: 500;
+  text-decoration: none;
+  font-variant-numeric: lining-nums;
+}
+
+.cite:hover,
+.cite:focus-visible {
+  text-decoration: underline;
+}
+
+.cite-missing {
+  color: var(--rubric);
+}
+
+.note {
+  margin: 0 0 1rem;
+  color: var(--graphite);
+  font-family: var(--sans);
+  font-size: 0.94rem;
+}
+
+.times {
+  margin: 0;
+  color: var(--graphite);
+  font-family: var(--sans);
+  font-size: var(--step--1);
+  font-variant-numeric: lining-nums tabular-nums;
+}
+
+.checks {
+  margin: 1.5rem 0;
+  padding: 0.8rem 1rem;
+  border-left: 3px solid var(--rubric);
+  background: var(--rubric-wash);
+  font-family: var(--sans);
+  font-size: 0.94rem;
+}
+
+.checks p {
+  margin: 0 0 0.4rem;
+}
+
+.checks ul {
+  margin: 0;
+  padding-left: 1.1rem;
+}
+
+.checks.clean {
+  border-left-color: var(--verdigris);
+}
+
+.sources {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.source {
+  position: relative;
+  margin: 0 0 1.4rem;
+  padding-left: 2.4rem;
+  scroll-margin-top: 1rem;
+}
+
+.source .siglum {
+  position: absolute;
+  left: 0;
+  top: 0.1rem;
+  color: var(--lapis);
+  font-family: var(--sans);
+  font-weight: 700;
+  font-variant-numeric: lining-nums;
+}
+
+.source .citation {
+  display: block;
+  font-family: var(--sans);
+  font-weight: 500;
+}
+
+.source .citation a {
+  color: var(--lapis);
+}
+
+.source blockquote {
+  display: -webkit-box;
+  margin: 0.3rem 0 0;
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 0.97rem;
+  line-height: 1.55;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 6;
+}
+
+.source.open blockquote {
+  display: block;
+}
+
+.source .toggle {
+  margin-top: 0.3rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--lapis);
+  font: 0.88rem var(--sans);
+  cursor: pointer;
+}
+
+.source.flash {
+  animation: flash 1.4s ease-out;
+}
+
+@keyframes flash {
+  from {
+    background: var(--lapis-wash);
+  }
+}
+
+.more {
+  margin: 0.6rem 0;
+  font-family: var(--sans);
+  font-size: 0.94rem;
+}
+
+.more summary {
+  color: var(--graphite);
+  cursor: pointer;
+}
+
+.more .count {
+  font-variant-numeric: lining-nums;
+}
+
+.passage-list {
+  margin: 0.5rem 0 0;
+  padding-left: 1.1rem;
+}
+
+.passage-list li {
+  margin: 0.25rem 0;
+}
+
+.error {
+  margin: 2rem 0;
+  padding: 0.8rem 1rem;
+  border-left: 3px solid var(--rubric);
+  background: var(--rubric-wash);
+  font-family: var(--sans);
+}
+
+.colophon {
+  padding: 1.5rem 0 3rem;
+  border-top: 1px solid var(--hairline);
+  color: var(--graphite);
+  font-family: var(--sans);
+  font-size: var(--step--1);
+}
+
+.colophon p {
+  max-width: 44rem;
+  margin: 0;
+}
+
+@media (max-width: 639px) {
+  .map,
+  .route-help {
+    display: none;
+  }
+
+  .submit {
+    width: 100%;
+    margin-left: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .map .station.waiting circle,
+  .source.flash {
+    animation: none;
+  }
+}

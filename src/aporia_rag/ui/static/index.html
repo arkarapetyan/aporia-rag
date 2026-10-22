@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AporiaRAG</title>
+  <meta name="description" content="Questions answered from twelve classic works of philosophy, each claim cited to its passage.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Alegreya:ital,wght@0,400;0,500;0,700;1,400;1,500&family=Alegreya+Sans:ital,wght@0,400;0,500;0,700;1,400&display=swap">
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+  <header class="masthead">
+    <h1 class="wordmark">AporiaRAG</h1>
+    <p class="lede">Ask twelve classic works of philosophy. Every answer cites the passages it
+      was written from, and you can watch how they were chosen.</p>
+  </header>
+
+  <main>
+    <form id="ask" class="ask" autocomplete="off">
+      <label class="visually-hidden" for="question">Your question</label>
+      <textarea id="question" name="question" rows="2" required
+        placeholder="Is lying ever right?"></textarea>
+
+      <div class="examples" aria-label="Example questions">
+        <span class="examples-intro">Or try</span>
+        <button type="button" class="example">Is lying ever right?</button>
+        <button type="button" class="example">Why do people hand over their power to a single sovereign?</button>
+        <button type="button" class="example">How do Kant and Mill differ on lying?</button>
+        <button type="button" class="example">What is a language game?</button>
+      </div>
+
+      <div class="options">
+        <label class="option">
+          <span>Authors</span>
+          <select id="author" name="author">
+            <option value="">Those the question names, or any</option>
+            <option value="*">All authors, one passage each</option>
+          </select>
+        </label>
+        <label class="option">
+          <span>Passages</span>
+          <input id="k" name="k" type="number" min="1" max="20" value="5" inputmode="numeric">
+        </label>
+        <label class="option option-check">
+          <input id="others" name="others" type="checkbox">
+          <span>Also list other authors who discuss it</span>
+        </label>
+        <button id="submit" class="submit" type="submit">Ask</button>
+      </div>
+    </form>
+
+    <section class="route" aria-labelledby="route-title">
+      <h2 id="route-title" class="section-title">The route</h2>
+      <p class="route-help">Each question takes a route through these steps. Detours below the
+        line run only when nothing found answers, or when the answer needs fixing.</p>
+      <svg id="map" class="map" viewBox="0 0 960 150" role="img"
+        aria-label="The steps of the corrective loop, lit as they run"></svg>
+      <ol id="steps" class="steps" aria-live="polite"></ol>
+    </section>
+
+    <section id="result" class="result" hidden>
+      <article class="answer" aria-labelledby="answer-title">
+        <h2 id="answer-title" class="section-title">Answer</h2>
+        <p id="scope-note" class="note" hidden></p>
+        <div id="answer-text" class="answer-text"></div>
+        <div id="checks" class="checks" hidden></div>
+        <p id="route-note" class="note"></p>
+        <p id="times" class="times"></p>
+      </article>
+
+      <aside class="apparatus" aria-labelledby="sources-title">
+        <h2 id="sources-title" class="section-title">Passages</h2>
+        <ol id="sources" class="sources"></ol>
+        <details id="others-box" class="more" hidden>
+          <summary>Other authors who discuss this <span class="count"></span></summary>
+          <ul class="passage-list"></ul>
+        </details>
+        <details id="left-out-box" class="more" hidden>
+          <summary>Left out as not relevant <span class="count"></span></summary>
+          <ul class="passage-list"></ul>
+        </details>
+        <details id="skipped-box" class="more" hidden>
+          <summary>Not graded, as two relevant passages came first <span class="count"></span></summary>
+          <ul class="passage-list"></ul>
+        </details>
+      </aside>
+    </section>
+
+    <p id="error" class="error" role="alert" hidden></p>
+  </main>
+
+  <footer class="colophon">
+    <p>Plato, Aristotle, Cicero, Seneca, Descartes, Hobbes, Hume, Kant, Mill, Schopenhauer and
+      Nietzsche, from Project Gutenberg. Answered by a local model; the web is searched only when
+      the corpus has no answer.</p>
+  </footer>
+</body>
+</html>

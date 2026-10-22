@@ -58,9 +58,9 @@ LangGraph states the loop as nodes and conditional edges, so the web
 fallback is one node and three edges. This module is the only one that uses it.
 """
 
-from collections.abc import Sequence
+from collections.abc import Callable, Iterator, Sequence
 from time import perf_counter
-from typing import Final, TypedDict
+from typing import Any, Final, TypedDict, cast
 
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
@@ -71,7 +71,7 @@ from aporia_rag.domain.ports import WebSearch
 from aporia_rag.generation.generator import Generator
 from aporia_rag.grading.citations import Problem, check_citations
 from aporia_rag.grading.relevance import RelevanceGrader
-from aporia_rag.pipelines.outcome import Outcome, Route
+from aporia_rag.pipelines.outcome import Outcome, Route, Step
 from aporia_rag.retrieval.names import authors_named_in
 from aporia_rag.retrieval.retriever import Retriever
 from aporia_rag.retrieval.rewriter import QueryRewriter
@@ -142,11 +142,12 @@ class CorrectiveRAG:
         k: int,
         authors: Sequence[str],
         others: bool = False,
+        on_step: Callable[[Step], None] | None = None,
     ) -> Outcome:
         """Run the loop for `question`; `authors` are the corpus's, for the rewriter.
 
         With `others`, also list other authors who discuss the question (see
-        the module's notes).
+        the module's notes). `on_step` is told of every step as it finishes.
         """
         start: _State = {
             "question": question,
@@ -169,7 +170,15 @@ class CorrectiveRAG:
             "others": [],
             "seconds": {},
         }
-        end: _State = self._graph.invoke(start)  # type: ignore[assignment]
+        end = start
+        # "values" is the state before and after each node, "updates" what the node changed.
+        stream = self._graph.stream(start, stream_mode=["values", "updates"])
+        for mode, chunk in cast(Iterator[tuple[str, Any]], stream):
+            if mode == "values":
+                end = cast(_State, chunk)
+            elif on_step is not None:
+                [(node, update)] = cast(dict[str, _State], chunk).items()
+                on_step(_step(node, end, cast(_State, {**end, **update})))
         return Outcome(
             answer=end["answer"],
             route=_route(end),
@@ -346,6 +355,78 @@ def _checked(state: _State) -> list[Problem]:
         return []
     authors = state["authors"]
     return check_citations(answer, named_in=lambda text: authors_named_in(text, authors))
+
+
+def _step(node: str, before: _State, after: _State) -> Step:
+    """What `node` did, from the state before and after it."""
+    seconds = sum(after["seconds"].values()) - sum(before["seconds"].values())
+    return Step(node=node, summary=_SUMMARIES[node](before, after), seconds=seconds)
+
+
+def _retrieved(before: _State, after: _State) -> str:
+    found = _count(len(after["found"]), "passage")
+    if after["query"] is not None:
+        return f'Searched again as "{after["query"]}": found {found}'
+    return f"Found {found}"
+
+
+def _graded(before: _State, after: _State) -> str:
+    graded = len(after["graded"]) - len(before["graded"])
+    if graded == 0:
+        return "Nothing to grade"
+    kind = "web page" if after["web"] else "passage"
+    summary = f"Graded {_count(graded, kind)}: {len(after['relevant'])} relevant"
+    if skipped := len(after["skipped"]) - len(before["skipped"]):
+        summary += f", {skipped} not graded"
+    return summary
+
+
+def _rewritten(before: _State, after: _State) -> str:
+    if after["outside_author"] is not None:
+        return f"The rewriter named {after['outside_author']}, who is not in the corpus"
+    return f'Rewrote the question as "{after["query"]}"'
+
+
+def _searched_web(before: _State, after: _State) -> str:
+    if after["web_error"] is not None:
+        return f"The web search failed: {after['web_error']}"
+    return f"Searched the web: found {_count(len(after['found']), 'page')}"
+
+
+def _checked_summary(before: _State, after: _State) -> str:
+    problems = len(after["problems"])
+    return f"Checked the answer: {_count(problems, 'problem') if problems else 'no problem'}"
+
+
+def _others_found(before: _State, after: _State) -> str:
+    match len(after["others"]):
+        case 0:
+            return "No other author discusses this"
+        case 1:
+            return "1 other author discusses this"
+        case count:
+            return f"{count} other authors discuss this"
+
+
+_SUMMARIES: Final[dict[str, Callable[[_State, _State], str]]] = {
+    _ASK_EACH_AUTHOR: lambda before, after: (
+        f"Asked each of the {len(after['author_questions'])} authors on their own"
+    ),
+    _RETRIEVE: _retrieved,
+    _GRADE: _graded,
+    _REWRITE: _rewritten,
+    _WEB_SEARCH: _searched_web,
+    _GENERATE: lambda before, after: (
+        "Wrote a section for each author" if after["scope"].survey else "Wrote the answer"
+    ),
+    _CHECK: _checked_summary,
+    _REVISE: lambda before, after: "Wrote the answer again, with its problems listed",
+    _OTHER_AUTHORS: _others_found,
+}
+
+
+def _count(number: int, noun: str) -> str:
+    return f"{number} {noun}" if number == 1 else f"{number} {noun}s"
 
 
 def _route(state: _State) -> Route:
