@@ -1,358 +1,158 @@
 # Architecture
 
+How AporiaRAG is built and why. The measurements behind the decisions, each with the rule fixed
+before it was run, are in [experiments.md](experiments.md); the tests, component by component,
+are in [test-plan.md](test-plan.md).
+
+## A question's way through the system
+
+```
+question ──> scope ──> search ──> grade ──> write ──> check ──> answer + passages
+              │                    │  ▲                 │  ▲
+              │                    │  │                 └──┘ written once more if the checks fail
+              │                    │  └── rewrite the question, search again (once)
+              │                    │  └── or search the web (last resort)
+              │                    └── nothing answers: say so, list what was graded
+              └── the authors the question names, or the reader's --author / --all-authors
+```
+
+Two entry points share everything below them: the CLI (`aporia-rag ask`, `search`, `evaluate`...)
+and the web UI (`aporia-rag serve`). Each turns its options into a `Scope`, asks the container for
+a pipeline, and only renders what comes back.
+
 ## Layers and the dependency rule
 
 ```
 src/aporia_rag/
-├── domain/        Pure core: models, errors, ports (Protocols). Depends only on pydantic.
-├── ingestion/     Raw text -> Documents -> Chunks. Depends on domain.
-├── indexing/      Keeps the vector index in step with the corpus. Depends on domain ports.
-├── retrieval/     Question -> nearest chunks; scope rules; rewriting a question. Depends on domain ports.
-├── adapters/      Ollama, Chroma and ddgs (later Google...) implementations of the ports.
-├── pipelines/     Plain RAG, and the corrective loop (LangGraph): grade, rewrite once, web, check.
-├── evaluation/    Gold questions and metrics: retrieval (Hit@k, MRR), the grader, answers.
-├── config.py      Settings from the environment / .env.
-├── bootstrap.py   Composition root: provider registries and the Container that builds everything.
-└── cli.py         `aporia-rag fetch | index | search | ask | evaluate`.
+├── domain/        Models, errors and ports (Protocols). Depends only on pydantic.
+├── ingestion/     Gutenberg mirror client, per-edition structuring, chunking, the corpus manifest.
+├── indexing/      Keeps the vector index in step with the corpus.
+├── retrieval/     Search, scope rules, authors named in a question, the query rewriter.
+├── generation/    The answer and the survey, written by the chat model from numbered passages.
+├── grading/       The relevance grader, and the citation checks on an answer (plain code).
+├── evaluation/    Gold sets and metrics: retrieval, the grader, and answers (plain vs corrective).
+├── adapters/      Ollama, Chroma and ddgs behind the ports.
+├── config.py      Settings from the environment or .env.
+├── pipelines/     Plain RAG, and the corrective pipeline built with LangGraph.
+├── bootstrap.py   Composition root: provider registries and the Container.
+├── ui/            FastAPI backend and the static page.
+└── cli.py         `aporia-rag fetch | index | search | ask | evaluate | serve`.
 ```
 
-**Rule:** dependencies point inward. `domain` imports nothing from the other packages;
-`indexing`, `retrieval`, `generation` and `pipelines` talk to models and stores only through the
-`Protocol`s in `domain/ports.py`, never through Ollama/Chroma/ddgs types directly. Only
-`adapters/` imports provider libraries, and only `bootstrap.py` knows which adapter is in use.
+**Dependencies point inward,** and the rule is enforced, not documented: four
+[import-linter](https://import-linter.readthedocs.io) contracts in `pyproject.toml` run as tests.
 
-So `adapters/` importing `chromadb`, `ollama` and `ddgs` is the design, not a leak: adapters are the one
-place where a provider's API meets our interfaces. What must hold is that nothing *else* does.
-
-**Enforced, not just documented.** The rules are [import-linter](https://import-linter.readthedocs.io)
-contracts in `pyproject.toml`, checked by `tests/unit/test_architecture.py` on every test run:
-
-- *layers*: `cli` > `bootstrap` > `pipelines` > {`adapters`, `config`, `evaluation`, `generation`,
-  `grading`, `indexing`, `ingestion`, `retrieval`} > `domain`. Nothing imports a layer above it, and
-  the middle packages do not import each other: the indexer reaches Chroma only through the
-  `VectorStore` port. `pipelines` sits above the components it calls and below the composition root that
-  builds it.
-- *provider-libraries*: `chromadb` and `ollama` are imported by `adapters` only, directly or
-  indirectly.
+- *layers*: `cli` > `ui` > `bootstrap` > `pipelines` > {`adapters`, `config`, `evaluation`,
+  `generation`, `grading`, `indexing`, `ingestion`, `retrieval`} > `domain`. Nothing imports a layer
+  above it, and the middle packages do not import each other: the indexer reaches Chroma only
+  through the `VectorStore` port, and the citation checks reach the corpus's authors through a
+  function they are given.
+- *provider-libraries*: `chromadb`, `ollama` and `ddgs` are imported by `adapters` only.
 - *orchestration-framework*: `langgraph` is imported by `pipelines.corrective` only.
+- *web-framework*: `fastapi`, `starlette` and `uvicorn` are imported by `ui` and the CLI that
+  serves it.
 
-A violation fails the build with the offending import chain, e.g.
-`aporia_rag.indexing.indexer -> aporia_rag.adapters.chroma -> chromadb`.
+A violation fails the build with the offending import chain. This is what keeps the project
+testable: the pipelines run in unit tests against small in-memory fakes of the same ports, with no
+mocks of library internals, and swapping the chat model or the vector store means writing one
+adapter.
 
-This is the main thing that makes the project testable. Graph nodes are unit-tested against
-small in-memory fakes that implement the same Protocols, instead of patching library internals
-with mocks. The tests stay fast and deterministic, and swapping the chat model for another, or
-Chroma for another store, means writing one adapter, not touching the graph.
+**Behaviour lives below the entry points.** Which authors a question covers (`retrieval.scope`),
+when other authors are looked for (the corrective pipeline), what a step reports, how each kind of
+check problem is called (`grading.citations`), whether the index is empty (the container): the CLI
+and the UI only turn options into calls and results into text. They were written for the CLI first
+and moved when the UI needed them (component 30).
 
-Packages are created when the first component that needs them is built, not ahead of time.
+## Providers: ports, adapters, registries
 
-## Key decisions
-
-**`uv` with a `src/` layout.** One tool for Python versions, virtualenvs, locking and running.
-The `src/` layout means tests import the installed package, not whatever happens to be in the
-working directory.
-
-**Runtime dependencies are added per component.** `pyproject.toml` lists only what is imported
-today, so every lockfile change is traceable to the component that introduced it.
-
-**Frozen, strict domain models.** `Document`, `Chunk` and `SourceMetadata` are immutable pydantic
-models with `extra="forbid"`: no stage can mutate data another stage holds, and a misspelled
-field fails immediately instead of disappearing.
-
-**Chunks are exact spans of their source.** A chunk stores `start_char`/`end_char` and its text is
-always `document.text[start_char:end_char]` (enforced by a model validator and a property-based
-test). Citations can point to the exact passage.
-
-**Recursive, structure-aware chunking.** Split at the coarsest boundary that fits: paragraph,
-sentence, clause, word, then characters. Overlap repeats the longest tail of the previous chunk
-that starts at a sentence boundary (falling back to a clause, then, for unpunctuated text, a
-unit boundary), looking inside paragraph-sized units rather than only repeating whole units. The
-first version only repeated whole units, which in practice meant almost no overlap: paragraphs are
-nearly always longer than the budget (1.5% of boundaries overlapped; 89% after the change).
-Overlap shrinks when needed to guarantee progress. Sizes are in characters, a proxy for
-tokens, which is good enough for embedding models with large context windows; this can be
-revisited if a small-context embedder is chosen.
-
-**Local chat model: `qwen3.5:35b-a3b` via Ollama.** A mixture of experts: 35B parameters, of which a
-router uses about 3B per token. Generation is limited by how many weights each token reads, so on
-an 8 GB laptop GPU, with 72% of the model in RAM, it wrote about 45 tokens/s. That is faster than
-`qwen3.5:9b`, which fits entirely on the GPU but reads all its 9B weights per token, and four times
-faster than the dense `qwen3:14b`, partly offloaded. On four test questions it was also the only one
-of the three that kept apart the views an author holds from those he reports in order to reject
-them (Aristotle's "current views" on pleasure, the utility theory Nietzsche calls "wrong"). It
-needs about 22 GB of RAM; `qwen3.5:9b` is the setting for 16 GB machines. Four questions decide a
-default, not the model: the answer evaluation will compare models on all 40 gold questions.
-
-**Corpus from a Project Gutenberg mirror, never the website.** Gutenberg
-[forbids automated access to gutenberg.org](https://www.gutenberg.org/policy/robot_access.html) and
-asks scripts to use a mirror with a 2-second wait between requests. `GutenbergMirror` talks to a
-mirror only and enforces the wait itself. Downloads are cached verbatim in `data/raw/` (written
-atomically, so an interrupted run never leaves a truncated file), and cleaning runs on the cached
-copy: changing the cleaning never means downloading again. The list of works is data
-(`ingestion/corpus.toml`), validated on load.
-
-**Per-edition layouts, shared clean-up rules.** Every Gutenberg file wraps the author's text in
-someone else's: introductions, notes, indexes, a whole Latin original in the Loeb *De Officiis*.
-What differs per edition (where the author's text starts and ends, how sections are headed) is
-data in each work's `layout`; what recurs (footnote and apparatus conventions) is one set of
-shared rules. The layouts were found with a throwaway spike over the real files and then built
-test-first: unit tests use tiny synthetic editions, one convention each, and opt-in contract tests
-pin the real corpus (section counts per work, Jowett excluded, no Latin left). An end-to-end scan
-of the loaded corpus then caught 71 margin notes merged into Cicero's paragraphs that no test had
-anticipated; that gap is now covered by both kinds of test.
-
-**Web fallback: `ddgs`.** Free with no API key. (The older `duckduckgo-search` package was renamed
-to `ddgs` upstream and is no longer maintained under its old name.) It asks several engines,
-Wikipedia first; Grokipedia is left out, because its articles are written by a language model and an
-answer cites its web pages as sources. ddgs does not go through httpx, so the tests cannot stop it
-with the injected transport: the container takes a web search to use instead, and a suite-wide
-fixture fails any unit test that reaches the real one.
-
-**Latin detection by function words, smoothed by neighbours.** A paragraph is English or Latin by
-majority vote of common function words (accents stripped, since the Loeb text marks verse
-stress). A tie, typically a short verse line with no function words at all, takes the language
-of the previous paragraph, because the bilingual edition alternates in page-sized blocks. On
-*De Officiis* this keeps 522 English paragraphs and drops 511 Latin ones, with no misclassified
-paragraph found. A language-identification library would add a dependency for one book.
-
-## Provider independence: ports, adapters, registries
-
-The application is written against four ports (`domain/ports.py`):
+The application is written against five ports (`domain/ports.py`), all `typing.Protocol`s that
+speak only in domain types:
 
 | Port | What it promises | Implementations |
 |---|---|---|
 | `Chunker` | `chunk(document) -> list[Chunk]` | `RecursiveChunker` |
 | `Embedder` | `space`, `embed_documents(passages)`, `embed_query(text)` | `OllamaEmbedder` (tests: `HashingEmbedder`) |
 | `VectorStore` | `space`, `upsert`, `query(vector, k, filters)`, `fingerprints`, `delete`, `clear`, `count` | `ChromaVectorStore` (tests: `InMemoryVectorStore`) |
-| `ChatModel` | `chat(messages) -> str`, never empty; `chat_structured(messages, schema)` -> an instance of the schema, at temperature 0 | `OllamaChatModel` (tests: `ScriptedChatModel`) |
+| `ChatModel` | `chat(messages, max_tokens) -> str`, `chat_structured(messages, schema, max_tokens)`, at temperature 0 | `OllamaChatModel` (tests: `ScriptedChatModel`) |
+| `WebSearch` | `search(query, limit) -> list[Chunk]` | `DdgsWebSearch` (tests: `ScriptedWebSearch`) |
 
-They are `typing.Protocol`s: any class with these methods qualifies, without inheriting from
-anything. The ports speak only in domain types (`Passage`, `Chunk`, plain `list[float]`
-vectors), never in a provider's types, and adapters translate provider exceptions
-into the domain's (`ProviderUnavailableError`, `ModelNotAvailableError`...), so nothing outside
-`adapters/` can tell which provider is in use.
+**A port arrives with its first caller,** never ahead of it. `chat_structured` came with the
+relevance grader, which needs a verdict code can rely on: the reply must fit a pydantic schema,
+Ollama constrains generation to the schema's JSON schema (the major APIs have an equivalent), and a
+reply that does not fit is a `ProviderError`, never a guess.
 
-A port is added together with its first caller and its first adapter, never ahead of them.
-`ChatModel` arrived with the generator as "messages in, reply out"; `chat_structured` arrived with
-its first caller, the relevance grader, which needs a verdict that code can rely on, not prose. The
-reply must fit a pydantic schema: Ollama constrains generation to the schema's JSON schema (the
-`format` parameter; the major provider APIs have an equivalent), and the reply is validated, so a
-reply that does not fit is a `ProviderError`, never a guess. Providers take the system
-prompt differently (a `system` message in Ollama and OpenAI, a separate parameter in Anthropic, a
-`system_instruction` in Gemini), so `ChatMessage` states the role and each adapter maps it.
-
-**Queries and passages are different calls.** Retrieval embedding models are trained
-asymmetrically, and each provider marks the difference its own way: an instruction (Qwen3), a
-prefix (Nomic, EmbeddingGemma), a parameter (`task_type` in Gemini, `input_type` in Voyage AI). So
-`Embedder` states the intent and each adapter maps it. The text templates belong to the *model
-family*, not to the server running it, so they are separate Strategy objects
-(`adapters/prompt_formats.py`), chosen from the model name, which any adapter can reuse.
-
-**The shared part of every embedder is written once.** `BatchingEmbedder` (Template Method)
-batches, sends the right purpose and checks the answer: one vector per input, all of one size,
-across calls too. A provider adapter implements one method, `_embed_batch`.
+**Queries and passages are different calls.** Retrieval embedders are trained asymmetrically and
+each provider marks the difference its own way (an instruction for Qwen3, a prefix for
+EmbeddingGemma and Nomic, a parameter for Gemini and Voyage AI). `Embedder` states the intent, and
+the templates are Strategy objects per model family (`adapters/prompt_formats.py`).
+`BatchingEmbedder` (Template Method) holds what every embedder shares: batching, the purpose, and
+checking one vector per input, all of one size.
 
 **An embedding space is a value.** `EmbeddingSpace(provider, model, dimensions, prompt_format)`
-says what a vector means. Vectors from different spaces are never compared: the indexer and the
-retriever refuse an embedder and a store from different spaces (`IndexMismatchError`), and Chroma
-keeps one collection per space (name derived from the space, space recorded in its metadata and
-checked on open). Switching the embedding model therefore builds a new index alongside the old one
-instead of silently mixing vectors, which also lets the evaluation compare models side by side.
+says what a vector means. The indexer and the retriever refuse an embedder and a store from
+different spaces, and Chroma keeps one collection per space, so switching models builds a new index
+beside the old one instead of mixing vectors, and models can be compared side by side.
 
-**Composition root, container and registries.** `bootstrap.py` maps provider names from the
-settings to factories through a small `ProviderRegistry` per port kind, and its `Container` builds
-each component once, on first use (`container.embedder`, `.vector_store`, `.indexer`,
-`.retriever`). Entry points ask the container for what they need instead of wiring components
-themselves, so the CLI and a future UI cannot wire them differently, and `fetch` never builds a
-model client. The container also *owns* what it builds: it is a context manager, and on exit it
-closes every component holding resources (the Ollama client's HTTP connection pool, a future SDK
-client). `close()` is deliberately not part of the ports: the indexer and retriever only borrow
-components, and only the owner should end their life. (This was found by `filterwarnings = error`:
-the live tests failed on an unclosed socket that a CLI run silently drops at exit, but that a
-long-running UI process would accumulate.)
+**Composition root and container.** `bootstrap.py` maps provider names from the settings to
+factories (a `ProviderRegistry` per port kind), and its `Container` builds each component once, on
+first use, and closes what it built when it exits. Adding a provider is one adapter, one
+registration and one setting (`APORIA_EMBEDDING__PROVIDER=google`); nothing in `indexing`,
+`retrieval` or `pipelines` changes. Factories take an optional `httpx` transport, which is how the
+tests run whole commands, and the web UI, with no network.
 
-Adding a provider is open/closed:
+**One family of expected errors.** Every failure the application expects is an `AporiaError`:
+configuration, corpus, provider (unreachable, model not pulled, a reply cut at its cap) and index
+mismatches. Adapters translate provider exceptions, so the CLI prints any of them as one line, the
+UI shows the same sentence, and a traceback always means a bug.
 
-1. Write `adapters/<provider>.py`. For embeddings, extend `BatchingEmbedder` and implement
-   `_embed_batch`, reusing a prompt format if the model family has one.
-2. Register a factory in `bootstrap.py`: `EMBEDDERS.register("google", _google_embedder)`.
-3. Add its contract tests: a new `VectorStore` gets the whole contract suite by adding one
-   fixture parameter in `tests/unit/adapters/test_vector_store_contract.py`.
-4. Configure it: `APORIA_EMBEDDING__PROVIDER=google`.
+**Fakes held to the real contract.** The vector-store contract suite runs every test against both
+the in-memory store and real Chroma. `FakeOllamaServer` refuses what Ollama refuses (an unanchored
+regex in a reply schema: the rewriter's first schemas passed every fake test and failed every live
+call), cuts replies at their cap and reports why it stopped.
 
-Nothing in `indexing/`, `retrieval/` or `pipelines/` changes. Settings `provider` fields are
-plain strings for the same reason: an enum of today's providers would have to be edited for each
-new one. Factories receive an optional `httpx` transport, which every HTTP-based SDK can take; it
-is how the CLI tests run whole commands with no network.
+## The corpus and the index
 
-**One family of expected errors.** Every failure the application expects is an `AporiaError`
-(`domain/errors.py`): configuration, corpus (`CorpusError`: a download missing, a file that is not
-the expected edition), provider (unreachable, model not pulled) and index mismatches. Adapters
-translate provider exceptions into these, so the CLI turns any of them, plus the environment's own
-`OSError`s, into a one-line message; a traceback always means a bug.
+**From a Gutenberg mirror, cached verbatim.** Project Gutenberg forbids automated access to its
+website, so `GutenbergMirror` talks to a mirror with a 2-second wait. Downloads are cached in
+`data/raw/`, and cleaning runs on the cached copy.
 
-**Fakes held to the same contract.** The in-memory fakes in `tests/support/fakes.py` are what the
-rest of the suite runs on, so they must behave like the real thing: the vector-store contract
-suite runs every test against both `InMemoryVectorStore` and real Chroma. `HashingEmbedder`
-(feature hashing: texts sharing words get similar vectors) makes retrieval tests meaningful
-without a model. A fake that is more lenient than the real thing hides bugs: the rewriter's first
-reply schemas carried a regex `pattern` (not blank), every fake test passed, and Ollama refused
-every request ("Pattern must start with '^' and end with '$'"). `FakeOllamaServer` now refuses such
-a schema the way Ollama does, and a reply's non-blank check runs when the reply is read, not in the
-schema sent to the model.
+**Authors' words only.** Every edition wraps the author's text in someone else's: Jowett's
+introduction is 46% of the *Republic* file, and the Loeb *De Officiis* is half Latin. Each work's
+`layout` in `ingestion/corpus.toml` says where the text starts and ends and how sections are headed;
+shared rules remove footnotes and apparatus; Latin paragraphs are dropped by a vote of function
+words. The result is 245 sections, each cited by author, work and section.
 
-## Indexing
+**Chunks are exact spans.** A chunk's text is always `document.text[start_char:end_char]`
+(validated, and property-tested), so a citation points at exact words. Chunking is recursive and
+structure-aware (paragraph, sentence, clause, word), 1,000 characters with 150 of overlap that
+starts at a sentence boundary: 7,705 chunks.
 
-**Incremental and idempotent.** Each stored chunk carries a fingerprint (a hash of exactly what
-was embedded: citation title and text). A run embeds only chunks that are new or changed, upserts
-them in groups, and deletes stored chunks that no longer exist. A second run embeds nothing; an
-interrupted run resumes where it stopped. Upsert, not add: Chroma's `add` silently ignores ids
-that already exist, which would keep stale text forever.
+**Embedded with context, stored as source.** A chunk is embedded titled with its citation ("Immanuel
+Kant, Fundamental Principles..., First Section"), and the store keeps the exact text. Indexing is
+incremental: a fingerprint of what was embedded decides what is new, changed or gone. Similarity is
+cosine. Ollama is told never to truncate, so an over-long chunk is an error, not half a vector.
+Queries are embedded on the CPU, so on an 8 GB GPU the chat model keeps the GPU instead of being
+reloaded for every question.
 
-**Embed with context, store the source.** A chunk is embedded as a passage titled with its
-citation ("Immanuel Kant, Fundamental Principles..., First Section"), a contextual header that
-tells the model what a mid-book paragraph is about. The store keeps only the exact source text,
-so citations and offsets stay exact.
+## Retrieval and scope
 
-**Cosine, not L2.** Chroma's default distance is squared L2; collections are created with
-cosine, and the store reports similarity (1 - distance), so every store returns the same scores.
+**Three scopes** (`retrieval.scope`): the k best passages of any author; the k best of one author;
+or a survey, the best passage of each of several authors. `scope_for(question, authors, author=...,
+all_authors=...)` decides: the reader's `--author` (any part of a name) or `--all-authors`, or else
+the authors the question names by surname, matched as whole words in plain code. One named author
+filters the search; two or more make a comparison, which the pipeline asks of each author on their
+own. `Retriever.best_per_author` embeds the question once and searches once per author, so an
+author with few passages on a subject still gets a turn (Aristotle has 63 chunks on friendship,
+Cicero 6).
 
-**Fail loudly on over-long input.** Ollama silently truncates input longer than the model's
-context unless told not to; the adapter sends `truncate: false`, so an over-long chunk is an error
-instead of a vector of half its text.
+## The corrective pipeline
 
-**Queries are embedded on the CPU.** On an 8 GB GPU, the embedder (2.4 GB of VRAM with its working
-memory) and the chat model's GPU share did not both fit, so Ollama evicted one to load the other on
-every question: retrieval took 7 s and each answer paid another 8-11 s to reload the chat model.
-The adapter now asks Ollama to embed queries on the CPU (`num_gpu: 0`): one short query takes a
-fraction of a second there, and the GPU stays with the chat model. Passages are not restricted:
-indexing embeds thousands of them, with nothing else loaded. The first `ask` after an `index`
-reloads the embedder once, on the CPU. CPU and GPU arithmetic differ in the last digits, which can
-at most reorder near-ties.
-
-## Generation
-
-**From plain RAG to graded RAG.** `aporia-rag ask` retrieves the `k` passages most similar to the
-question, exactly as `search` does, keeps those the relevance grader judges relevant (see Grading),
-and `generation.Generator` has the chat model answer from them. Plain RAG, the baseline the
-evaluation compares against, is the same pipeline without the grader.
-
-**Numbered passages, numbered citations.** The model gets the passages numbered from 1, each headed
-by its citation, then the question (the usual advice for long prompts: the material first, the
-question last). The system prompt asks it to use only the passages that bear on the question, to
-say so when none answers it, to attribute to an author only what the author holds (philosophers
-often state a view to reject it), to cite the passage behind each claim as `[n]`, and to quote only
-words that are in the passages. Three of these rules came from the first real answers: `qwen3:14b`
-gave every retrieved passage a paragraph, presented a theory Nietzsche calls "wrong" as his own, and
-cited a Hobbes passage for a quotation that is not in it. A number is short and unambiguous,
-where a written-out citation gets paraphrased, and `Answer.sources[n - 1]` is the passage cited as
-`[n]`, so every citation leads back to an exact chunk. `ask` prints the answer and then the
-numbered passages. Nothing checks yet that the model keeps to the passages; that is what the
-groundedness grader will do.
-
-**Thinking off.** Qwen3 and Qwen3.5 are thinking models: by default they reason at length before answering,
-which takes several times as long. The Ollama adapter sends `think: false`, so the baseline answers
-directly (models that cannot think are unaffected). The graders may want reasoning back; it becomes
-a setting when something needs it.
-
-**An empty reply is an error.** The `ChatModel` port promises a non-empty reply, so the adapter
-raises `ProviderError` rather than letting an empty answer be printed (or, later, graded).
-
-**Answer or survey.** `Generator.answer` writes a few paragraphs from the passages that bear on the
-question; `Generator.survey` covers passages that come one per author (`ask --all-authors`). Both
-send the same numbered passages, and the rules that keep a reply faithful (attribution, quotes) are
-written once and shared. A survey's form is the code's, not the model's: it is a structured reply
-(`SurveyReply`) with exactly as many paragraphs as passages, the count in the JSON schema and
-checked again on validation, and each paragraph becomes a section headed by its author and passage
-number (`Immanuel Kant [1]`). The first version asked for the paragraphs and the numbers in the
-prompt; three surveys in the CLI came back right, but the first live test (L.6) got two correct
-paragraphs and no number at all. A prompt rule is a tendency, so what must always hold is now
-structure. A structured reply also runs at temperature 0, so the same passages give the same survey.
-The survey prompt also forbids what the model knows of an author from elsewhere: with one passage
-per author, that is the obvious temptation.
-
-**A fixed context length.** Ollama's default context is 4096 tokens on an 8 GB GPU. A survey of all
-11 authors (the 12 works include two by Mill: 11 passages of 230 to 300 tokens, the instructions,
-and 11 paragraphs) needs up to about 4,500, and past the limit Ollama silently drops part of the prompt. The adapter therefore sends
-`num_ctx` from `ChatSettings.context_length` (8192) with every request, the grader's included:
-Ollama reloads a model whose context length changes, so a different value per call would mean a
-reload per call. The cost is the larger cache for the attention layers, small for
-`qwen3.5:35b-a3b`, whose layers are mostly linear attention.
-
-## Grading
-
-**Nearest is not relevant.** Retrieval returns the passages nearest to the question: a Hobbes
-chapter on honour is near a question about the dishonourable, and every passage given to the
-generator got its own paragraph, often misread. Prompt rules did not stop that, so
-`grading.RelevanceGrader` checks each retrieved passage before generation and keeps the ones the
-chat model judges relevant: those that state, explain or argue something the question asks about.
-
-**One structured call per passage.** The verdict is `{"relevant": true}` or `false`, a
-`RelevanceVerdict` read through `chat_structured`. One call per passage, not one for all: each
-prompt stays short, well inside the model's context, and each verdict depends on its passage alone.
-Temperature 0 makes the verdict repeatable: the same passage, the same decision.
-
-**Visible decisions.** `ask` lists the passages it left out as not relevant under the ones it used,
-and when no passage is relevant it says so, lists them all the same (so the decision can be
-checked), and does not ask for an answer at all. That replaces the
-worst failure seen so far: an answer written from the model's memory, with citations of passages
-that do not support it.
-
-**Pointers to the other authors.** Top-k retrieval lets one author fill every slot: the corpus has
-63 Aristotle chunks about friendship and 6 from Cicero, so "What is friendship?" retrieves only
-Aristotle. After the answer, `ask` therefore gives each author with no passage among those found a
-search of their own (`Retriever.best_per_author`: the question is embedded once, then one filtered
-search per author), sends the best passage of the 4 strongest to the grader, and lists the ones it
-accepts as "Other authors who discuss this". The grader decides, not the similarity score: Plato
-has 110 chunks with "friend" in them, nearly all of them "my friend" as a form of address. The
-limit of 4 bounds the extra wait (one model call each, 2-4 s on an 8 GB laptop GPU). No planner is
-needed: the search uses the question as written, and `--author` turns the pointers off. On the
-first three questions (friendship, pleasure, justice) all 9 pointers were relevant, and for "What is
-justice?" they brought back Plato, whom the top 5 had missed. The limit has a price: Plato's
-passages on pleasure as the good (Republic VI) did not appear for "Is pleasure the highest good?".
-
-**A survey of all authors.** `--all-authors` replaces the top `k` with the best passage of every
-author (`best_per_author` over the whole manifest), grades them all, and has the generator write
-one paragraph per relevant author. The authors whose passage the grader leaves out are listed with
-it, as in the normal answer: the claim is "this author's best passage does not answer the
-question", not "this author never discusses it", because one passage per author is all that was
-checked. A survey costs one verdict per author (11 calls, about 25 s) and a longer answer; there
-are no pointers, since every author has been looked at. `search --all-authors` shows the same
-passages without the model, to see what each author's best match is. On the first three surveys
-(friendship, pleasure, justice: 48-63 s each) every paragraph kept to its author's passage, and 14
-of the 16 passages left out were clearly not relevant. The other two show the limits of one passage
-per author: Plato's best match on pleasure (Republic IX, the truest pleasures are those reason
-guides) was left out while a similar Mill passage was kept, and Republic VI, where Socrates rejects
-"pleasure is the good", is not Plato's best match at all. Likewise Hume's "friendship is the chief
-joy of human life" (Section XI) is not his best match for "What is friendship?".
-
-**Authors named in the question.** A question that names an author is about that author, so without
-`--author` or `--all-authors` the names set the scope: one named author is searched as with
-`--author`, two or more get the best passage of each and a survey, as `--all-authors` does for all
-of them, and the first line of the output says whom it searched. `retrieval.names` matches the
-surname as a whole word in any case (`kant`, `Kant's`; not `Kantian`): plain code, because the names
-are a short, fixed list. The filter is not what helps. The 15 gold questions that name one author
-already retrieve almost only that author (1 of their 150 top-10 chunks is another author's), so
-their results do not change. What changes is the rest of `ask`: no search for other authors, which
-saves 8-10 s and a list the question did not ask for, and a section for each author of a comparison
-("How do Kant and Mill differ on lying?"), which the gold set cannot measure yet. (A comparison is
-graded per author, see "The corrective graph": asked the comparison itself, the grader left out
-every passage, even those on lying.) A question about
-one author's view of another ("What does Aristotle say about Plato's forms?") surveys both;
-`--author` keeps it to one.
-
-## The corrective graph
-
-**Grade, then search again only when nothing answers.** `pipelines.CorrectiveRAG` runs the loop that
-`ask` used to run inline: retrieve, grade every passage, and answer from the ones kept. When the
-grader keeps none, it does not answer from noise: `retrieval.QueryRewriter` writes one search query
-in the corpus's vocabulary, the graph searches again with the same `k` and author filter, grades
-only the passages it has not graded yet, and answers from those or says that nothing answers. The
-query is for the search only; verdicts and the answer are about the reader's question, and `ask`
-prints the query so the detour can be checked.
+`pipelines.CorrectiveRAG` is a LangGraph state machine:
 
 ```
-START -> [ask_each_author] -> retrieve -> grade -> generate -> END
+START -> [ask_each_author] -> retrieve -> grade -> generate -> check -> [other_authors] -> END
+                                                                 |   ^
+                                   (problems, the first time)    +-> revise
 
 after grade, when nothing is kept:
   not rewritten yet -> rewrite -> retrieve     the author it names is in the corpus
@@ -361,220 +161,182 @@ after grade, when nothing is kept:
   web searched      -> END, with no answer
 ```
 
-**Model calls only where they are needed.** On the normal path (something kept) the graph makes
-exactly the calls `ask` made before: one verdict per passage and one answer. The rewrite runs only
-on the loop path, at most once: one rewrite was enough when it was measured. Measured before the
-rewriter was built (2026-10-20): the trigger "nothing kept in the top 5" starts the loop for 6 of
-the 7 gold questions that need it, with no needless start; the chat model's rewrites put evidence in
-the top 5 for all 3 retrieval questions that fail, at 1.5-1.9 s each; and a prompt line asking the
-grader to keep one side of a comparison was tried and reverted, because it made the grader more
-lenient everywhere (17 of 25 changed verdicts wrong) without fixing the comparison.
+**Model calls only where they are needed.** On the normal path the calls are one verdict per passage,
+in the order found, until 2 are kept (early stop), and one answer. The loop's calls (one rewrite,
+verdicts on new passages, web pages) run only when nothing is kept, and the second draft only when
+the checks find problems. Every loop runs at most once, so the pipeline always ends, with "none of
+the passages found answers this question" if it has to.
 
-**The web, last (2026-10-21).** When the rewritten search finds nothing relevant either, the graph
-searches the web with the reader's question, for `k` pages, and grades them like passages: each page
-is a chunk with its site as author and its title as title (`domain.web_passage`, at most 2,000
-characters), so the grader and the generator need no change. A question outside the corpus need not
-pay for the second corpus search at all: the rewriter's reply names the author most likely to answer
-in a field of its own, after the query, and plain code checks that name against the corpus's
-authors. On 2026-10-20 the Wittgenstein question spent 9 verdicts (12.9 s) and the search for other
-authors (6.2 s) on nothing; now an outside author goes to the web straight after the rewrite, and
-`ask` looks for other authors only beside an answer from the corpus. A familiar name in a question
-about a work outside the corpus (Plato's *Lysis*) still pays for the second search: accepted. A
-survey never goes to the web, since its form is one section per corpus author, and a web search that
-fails (offline, a rate limit) ends without an answer and says why, keeping what was graded.
+| Path | Model calls |
+|---|---|
+| Normal: something relevant on the first search | 1 verdict per passage until 2 are kept, 1 answer |
+| Loop: nothing relevant, an author in the corpus named | + 1 rewrite, 1 verdict per new passage |
+| Web: nothing relevant, or an author outside the corpus | + 1 rewrite, 1 verdict per page |
+| Problems in the answer | + 1 second draft |
+| Comparison of named authors | + 1 call for the subject, 1 verdict per author |
+| `--others` | + 1 verdict for each of up to 4 other authors |
 
-Live (2026-10-21), the model read the author field as "which listed author, if any": "None of the
-listed authors" for Wittgenstein (to the web at once: an answer from Wikipedia in 21.5 s, where
-2026-10-20 had none in 21.7 s), John Stuart Mill for the veil of ignorance (one more corpus search,
-then a web answer). That bias is the safe one: a wrong "none" would skip an answer the corpus may
-hold; a wrong corpus author costs about 3 s. The field also changed the queries, which the
-measurements of 2026-10-20 had not: with `query` as the only field, the model, told to name the
-author, had kept writing the query instead of starting a field it was not given (the Cicero query
-of 2026-10-20 is that of 2026-10-21, "Is it ever expedient to do injustice?", with 17 more words).
-A reply schema steers a model as its prompt does, so a schema change is measured like a prompt
-change. Measured on 8 in-corpus questions (`data/eval/spike_rewrite_variants.py`), the author
-asked for *before* the query did best: the model chooses whose words to use, then writes in them
-("why men surrender natural liberty to a commonwealth"), and gold evidence was in the top 5 for 7
-of 8 questions, against 4 of 8 with the query first and 5-6 of 8 for longer queries. Asked for
-after the query, the author named fits the query rather than the library (Machiavelli for Plato's
-royal lie): first, it was Plato. Questions about a work's details stay hard: for Plato's *Lysis* the web found Wikipedia's
-article and four more pages, and the grader left out all five.
+**The rewrite names an author first.** The rewriter's structured reply is `{author, query}`, in that
+order: the model chooses whose words to search in, then writes the query in them ("why men
+surrender natural liberty to a commonwealth"). Plain code checks the name against the corpus: an
+author outside it sends the question to the web at once, with no second corpus search. A reply
+schema steers a model as its prompt does, so the field order was measured like a prompt.
 
-**Faster answers (2026-10-21).** Grading is most of the wait: 5 verdicts take about 7 s, and about
-half of each is the model reading its prompt (repeated prompts, served from Ollama's cache, took
-2.5-3.5 s for the same 5). Measured on the laptop before choosing (`data/eval/spike_grading_speed.py`):
-5 verdicts at once took as long as 5 in a row (with 73% of the model on the CPU, compute is the
-limit), and one call for all 5 passages, 3.9 s, lost recall (0.84) and changed 37 of 245 verdicts.
-What was chosen: grading in the order found stops once 2 passages are kept (35% fewer verdicts on
-the 40 retrieval questions' saved verdicts, none left unanswered; answers draw on fewer passages),
-and the search for other authors, 6.5 s after every corpus answer, runs only with `ask --others`.
-A survey still grades every author's passage. The spike's first summary had concurrency passing:
-its rotation ran the concurrent calls second, on cached prompts, for 2 of every 3 questions. An
-order effect needs a balanced design or a comparison of first runs only.
+**The web, last.** The web gets the reader's question, for k pages; each page becomes a chunk with
+its site as author (`domain.web_passage`, at most 2,000 characters), so the grader and the generator
+take it like a passage, and only then does a question leave the machine. A survey never goes to the
+web, and a failed web search ends without an answer and says why.
 
-**Comparisons per author.** Asked "How do Kant and Mill differ on lying?", the grader left out every
-passage, even Kant's and Mill's own on lying; asked "What does Immanuel Kant say about lying?" and
-the same of Mill, it kept each side and still left out Mill on dissent (3 of 3; two plain-code
-framings of the comparison scored 1 of 3). So a question that names two or more authors costs one
-model call for its subject; plain code asks it of each author, and each author's best passage is
-found among that author's works with that question and graded against it. The survey answers the
-reader's question, in the order of the names. A survey of all authors is never rewritten.
+**Comparisons are asked per author.** Asked "How do Kant and Mill differ on lying?", the grader left
+out every passage, even Kant's and Mill's own on lying; asked about one author at a time, it kept
+both. So one call writes the comparison's subject, plain code asks it of each author, and each
+author's best passage is found and graded with that author's own question.
+
+**Other authors, on request.** `others=True` grades the best passage of up to 4 authors who had none
+among those graded, and lists the relevant ones: only beside an answer from the corpus to an
+unrestricted question.
+
+**Steps as they finish.** `answer(..., on_step=...)` streams LangGraph's node updates and reports
+each node as it finishes: its name, one sentence ("Graded 5 passages: 2 relevant, 3 not graded",
+"Rewrote the question as ...") and its seconds. The sentences are written once, in Python, for
+any client.
+
+**`Outcome`** is what both pipelines return: the answer and its sources, what was graded, left out
+and skipped, the route ("plain", "normal", "loop", "web"), the rewritten query, the problems of the
+first and the final draft, other authors, and the seconds per stage.
+
+**`pipelines.PlainRAG`** is the baseline: the same scope, retrieval, answer prompt and checks, with no
+grader, no second search, no web and no second draft.
 
 **Why LangGraph.** The loop is a small state machine, and LangGraph states it as nodes and
-conditional edges: the web fallback (component 26) added one node and three edges, and the compiled
-graph draws itself as a Mermaid diagram. It is the only package that imports LangGraph (enforced),
-and its nodes call the same components the CLI used, so they are tested with the same in-memory
-fakes. LangGraph brings `langchain-core` as a dependency; nothing in the project uses LangChain's
-retrieval or model wrappers.
+conditional edges: the web fallback was one node and three edges, and node updates stream for free.
+Only `pipelines.corrective` imports it, and its nodes call the same components as everything else,
+so they are tested with the same fakes. LangChain's model and retrieval wrappers are not used.
 
-## Checking the answer
+## Generation
 
-**Every reply has a cap.** Every call to the chat model states how long its reply may be
-(`max_tokens`: Ollama's `num_predict`, the APIs' `max_tokens`): a verdict 16 tokens, a rewrite 64,
-an answer 1,024, a survey 256 per passage, each well above the longest seen. A reply cut at its cap
-is a `ProviderError`, so a reply that does not stop fails in seconds; one did on 2026-10-21 (a
-rewrite with a one-field reply ran on until the 120 s time-out). A cut answer is never shown as
-whole.
+**Numbered passages, numbered citations.** The model gets the passages numbered from 1, each headed
+by its citation, then the numbers it may cite ("There are 2 passages: cite them as [1] and [2]."),
+then the question. The prompt asks it to use only passages that bear on the question, to say when
+none does, to give an author only what the author holds (philosophers state views to reject them),
+to cite the passage behind each claim, and to quote only words that are in the passages.
+`Answer.sources[n - 1]` is the passage cited as `[n]`. The prompt once gave "[2]" as an example of a
+citation; 4 of the 5 answers that made up a citation number cited [2] from one passage, so the
+numbers are now named instead.
 
-**The right passages are not yet a right answer.** The corrective loop decides what the model
-reads; nothing in it checks what the model then writes. Read claim by claim, live answers went
-wrong with the right passages in hand: Cicero's view given to Plato because both passages ranked
-the soul above the body and the paragraph was about Plato; an opponents' argument that Cicero
-reports ("As their concluding argument, they add...") given as the passage's conclusion, the
-speaker being named only in the chunk before; and quotations not word for word ("to get themselves
-out" for "of getting themselves out", "natural" for Hobbes's "naturall"). The answer prompt asks
-for all three, and a prompt rule is a tendency, not a guarantee.
+**A survey's form is code.** `Generator.survey` asks for a structured reply with exactly one
+paragraph per passage (the count is in the JSON schema), and each paragraph becomes a section
+headed by its author and passage number. A prompt rule is a tendency; what must always hold is
+structure.
 
-**Plain code first** (`grading.citations`): every quotation must occur word for word in a passage
-its sentence cites (an ellipsis or an editor's "[s]" marks a gap), and a sentence that cites
-passages and names corpus authors must name the author of one of them ("Cicero answers Hobbes [1]"
-passes). Run on the 7 answers saved before it existed, it flagged Cicero-as-Plato, both Hobbes
-quotations and a scare-quoted "expediency" the passages do not contain, and nothing else; the
-reported-argument error is beyond it. The check reaches the corpus's authors through a function it
-is given, since `grading` does not import `retrieval`.
+**Settings every call shares.** Thinking is off (`think: false`): Qwen3.5 reasons at length by
+default. The context length is fixed at 8,192 tokens for every call, since Ollama reloads a model
+whose context changes and silently drops what does not fit. Every call states a reply cap (a verdict
+16 tokens, a rewrite 64, an answer 1,024, a survey 256 per passage); a reply cut at its cap is a
+`ProviderError`, so a reply that does not stop fails in seconds, not at the 120 s time-out.
 
-**Measured on 49 answers, then built.** Layer 1 flagged 13 of 48 answers, every one of its 19
-problems real: 9 made-up citation numbers, 2 quotations from another passage than the one cited, 6
-quotations changed in a word ("use" for "using", "he" for "I") and 2 made up. So the graph checks
-every answer but a survey and, when it finds problems, writes the answer once more: the model gets
-its own draft back (the one place the application sends an `assistant` message) and a note per
-problem saying what to fix; what still fails is reported with the answer, never hidden. The
-made-up numbers had a cause in the prompt: 4 of the 5 answers that invented a citation cited [2],
-the prompt's example, from a single passage. The prompt now gives no example number, and the user
-message names the numbers to cite ("There is one passage: cite it as [1]."). Reading 15 of the
-answers claim by claim found 6 errors no plain code can see, among them a view Aristotle reports
-and rejects given as his, and Schopenhauer's "pendulum" supplied from memory.
+## Grading and checking
 
-**Measured again, and layer 2 dropped (2026-10-22).** With the numbers named, the 49 first drafts
-had no made-up citation, and layer 1 flagged 6 of 48 (13 before), all quotations; 5 were real and
-the rewrite fixed 2 ("shines" for Kant's "shine", "no copy of the Ideas" for Schopenhauer's "by no
-means … the copy of the Ideas"), at 6.3 s for each of the 6. The sixth was a false alarm, since
-fixed: Nietzsche's "switched off" quoted in single quotation marks inside the answer's double ones,
-so quotation marks no longer count. A model check of each answer (layer 2: the passages, the
-answer one numbered sentence per line, "which sentences do the passages not support?") found 1 of
-the 6 errors on the 15 answers read and flagged 2 of the 9 good ones, so it was not built: the
-local model does not see what it got wrong in the first place. Errors only a reader finds remain,
-and the evaluation measures them.
+**Nearest is not relevant.** Retrieval returns the passages nearest to the question, and every
+passage the model got used to get a paragraph, often misread. `grading.RelevanceGrader` asks the
+chat model about each passage, one structured call each (`{"relevant": true}`), so each verdict
+depends on its passage alone and each prompt stays short. What it leaves out is listed, so every
+decision can be checked.
+
+**The right passages are not yet a right answer.** The citation checks (`grading.citations`) are plain
+code, run on every answer but a survey:
+
+- every quotation must occur word for word in a passage its sentence cites (or in any passage when
+  the sentence cites none); case, spacing, quotation marks, apostrophes and Gutenberg's `_italics_`
+  do not count, and an ellipsis or an editor's "[s]" marks a gap;
+- every citation must have a passage behind it, ranges ("[5-6]") included;
+- a sentence that cites passages and names corpus authors must name the author of one of them.
+
+Each problem carries a note for the model and a label for the reader. With problems, the pipeline
+writes the answer once more: the model gets its own draft back (the one place the application sends
+an `assistant` message) and the notes; what still fails is shown with the answer, never hidden.
+
+**What is not checked.** A claim its passage does not make, a view an author reports and then rejects
+given as the author's own, a speaker confused inside a dialogue. A model check of every sentence
+(groundedness) was built as a spike and dropped: the local model found 1 of 6 such errors read by
+hand. These errors are measured by reading, in the evaluation.
 
 ## Evaluation
 
-**Judge retrieval on a gold set, not on single queries.** `evaluation/gold_retrieval.toml` holds
-40 hand-written questions over all 12 works, each with its evidence: every passage known to answer
-it, as a section and a short verbatim quote. `aporia-rag evaluate --model A --model B` searches every
-question in each model's own index and reports Hit@1/5/10 and MRR@10 at two levels: a *passage
-hit* (the chunk contains the quote: what the generator needs) and a *section hit* (right section,
-maybe the wrong paragraph). The gap between the two levels separates chunk dilution from not
-understanding the question.
+`aporia-rag evaluate` measures through protocols declared next to it (`Searcher`, `Judge`, `Run`),
+which the retriever, the grader and the pipelines' `Outcome` satisfy, so `evaluation` imports none
+of them.
 
-**Quotes, not chunk ids.** Matching the quote keeps the gold set valid when chunking changes, so
-the same questions can later compare chunk sizes. An integration test checks that every quote
-sits inside a chunk of its section, since an unfindable quote would silently lower every score.
+**Retrieval on a gold set.** `evaluation/gold_retrieval.toml` holds 40 questions over all 12 works,
+written in a reader's words rather than the source's, each with every passage known to answer it, as
+a section and a short verbatim quote. Matching the quote rather than a chunk id keeps the set valid
+when chunking changes. Metrics: Hit@1/5/10 and MRR@10, for the passage (the chunk holds the quote) and
+the section. An answering passage missing from the set counts as a miss, so the set was completed by
+pooling: every chunk the bake-off models retrieved was read and judged, and `--dump` saves what a
+run retrieves for the next round.
 
-**Every answering passage, not just the best one.** An answering passage missing from the gold
-set counts as a miss when it is retrieved, so passage scores are only a lower bound until the
-evidence is complete (in information retrieval: *incomplete relevance judgments*). The first
-bake-off showed it: the right section in the top 5 for 88% of questions, the quoted passage for
-40%. Reading the corpus for every other passage that answers each question found 39 more (84 in
-all), including two errors: Hume poses the problem of induction in Section IV, and one Descartes
-quote sat in a fragment that does not say what it is about. Passages a model finds in words no
-search anticipated are found by reading its retrieved chunks (*pooling*, as in TREC):
-`evaluate --dump data/eval/retrievals.jsonl` saves every retrieved chunk with its verdicts.
-Judging the 808 chunks the three bake-off models retrieved added 217 passages (301 in all), and
-the best model's passage Hit@5 rose from 57% to 93%: most of the gap had been missing evidence.
-The pool covers those three models only, so before comparing a new model or a reranker, judge
-the chunks it retrieves that are not in that dump; otherwise every new answer it finds is a miss.
+**The grader against the gold set** (`--grade`): precision and recall of its verdicts on the top 5
+and the top 10, the questions where the loop would start (rightly, needlessly, or not when it
+should), and every disagreement, to be read. `evaluation/gold_loop.toml` adds 9 questions for the
+loop: 5 answered in the corpus but asked in words far from the source's, and 4 the corpus cannot
+answer.
 
-**Questions in a reader's words.** The questions avoid the source's wording, so they measure
-meaning rather than word overlap: a bag-of-words baseline (feature hashing, the test embedder)
-finds a passage in its top 5 for only 25% of them. With 40 questions, one question is 2.5
-points, so smaller differences between models are noise.
+**Answers, plain vs corrective** (`--answers PATH`): both pipelines answer all 49 questions with the
+same models. Plain code counts the answers given a gold passage, the gold share of the passages
+given, where the answers to outside questions came from, the check problems, the second drafts and
+the median time; every answer is saved with its passages for reading. A blind reading of 15
+questions' two answers (shuffled, without the systems' names) counts the errors plain code cannot
+see.
 
-**The evaluation depends on a `Searcher` protocol** (`search(question, *, k)`) declared next to
-it. `Retriever` satisfies it structurally, so `evaluation` imports neither `retrieval` nor a
-provider, and the corrective graph will be measured through the same interface.
+## The web UI
 
-**Measure the grader before building on it.** The corrective loop will start from the grader's
-verdicts, so the grader's two errors decide what the loop does: a false "not relevant" on every
-answering passage starts a needless rewrite or web search, and a false "relevant" keeps the loop
-from starting and hands the generator a passage beside the point. Its first live run (15 of 15) was
-too small to show either rate, but the pooled gold set already holds the labels: every chunk that
-`qwen3-embedding:0.6b` ranks in a top 10 was judged. `evaluate --grade` grades every retrieved
-chunk (`evaluation.grading`, through a `Judge` protocol that `RelevanceGrader.is_relevant`
-satisfies) and reports, at the top 5 and the top 10: precision and recall against the gold set,
-the questions where the loop would start (rightly, needlessly, or not when it should), the grading
-time per question, and every disagreement, to be read rather than only counted. The gold set's rule
-("states or argues the author's answer to the question as asked") is stricter than the grader's
-prompt ("even in part"), so some disagreements are the grader's leniency by design. Measured
-offline before building it: with the `ask` default of 5 passages, 47% of the retrieved passages
-are not evidence, and only 3 of the 40 gold questions have none in their top 5. A perfect grader
-would start the loop for those 3 only: the retrieval set barely exercises the loop.
+`aporia-rag serve` runs a FastAPI app (`ui/app.py`) on 127.0.0.1:8000 with one static page
+(`ui/static`: HTML, CSS and plain JavaScript, no build step).
 
-**Loop questions.** `evaluation/gold_loop.toml` is a separate set for the loop, so the 40 retrieval
-questions stay comparable with earlier runs. Five questions are answered in the corpus but asked in
-words far from the source's (Hobbes's "Covenants Extorted By Feare", Chase's "Imperfect
-Self-Control" for akrasia, Descartes's "automata", Plato's "royal lie"); four ask what the corpus
-does not contain, with `evidence = []`. Retrieval metrics leave the latter out (they have no rank to
-find), and the grader evaluation uses them: every retrieved passage is rightly "not relevant", so the
-loop must start, and the web fallback is their only route.
-
-**What the first grader run showed (2026-10-20).** Of 68 disagreements, read one by one: 21 grader
-errors (all on the 40 retrieval questions), 28 leniency by design, 16 answering passages the gold
-sets lacked (now added, most marked borderline; among them Cicero's "promises are not binding which
-are extorted by intimidation", which no keyword search had found), and 3 passing mentions. On the
-corrected labels the grader's precision and recall are 0.93 and 0.92 at the top 5, and it rejected
-every passage retrieved for the four questions outside the corpus. The one systematic error was a
-passage that answers one part of a question with several parts, or one side of a comparison. A
-prompt line naming that case was measured and reverted: it made the grader more lenient overall
-(25 more chunks kept, 17 of them not evidence; precision 0.93 -> 0.89) and still dropped Kant's
-passage for "How do Kant and Mill differ on lying?". A prompt rule moves a threshold; the fix for
-comparisons belongs to the caller, which can ask about one author at a time. "The grader keeps no
-passage in the top 5" starts the loop for 6 of the 7 questions that need it, with no needless
-start; "fewer than 2 kept" would add 11 needless starts to catch the seventh. Retrieval is
-stronger than the loop set assumed: modern wording for Hobbes, Aristotle, Descartes and Plato
-still found the evidence in the top 5. Hand-written rewrites in each author's vocabulary
-(`search`, a spike) brought evidence into the top 5 for all three retrieval questions that fail
-(`kant-universal-law`, `cicero-expedient-and-right`, `hobbes-sovereign`), which bounds what a
-query rewriter can gain.
-
-**Comparing answers: what the corrective calls buy.** `evaluate --answers PATH` answers every gold
-question twice, with the same models and answer prompt: plain RAG answers from the top 5 passages
-in the question's scope, whatever they are; the graph grades them, searches again or on the web,
-and writes the answer again when the citation checks fail. Plain code then counts, per system
-(`evaluation.answers`): the answers given at least one gold passage and the gold share of the
-passages given; for the questions outside the corpus, the answers from corpus passages (which
-cannot answer them), from the web, or none; the answers with a citation-check problem; and the
-median time. `--gold` may be given twice, so the 40 retrieval and 9 loop questions run as one set.
-Plain RAG runs over every question first, then the graph, so neither is helped by the other's
-prompts in Ollama's cache. The gold labels are complete only for what the pooled model retrieved
-for the question as asked, so a passage a rewritten search finds can answer and still count as not
-gold: the graph's gold share is a lower bound. What plain code cannot see, a claim its passage does
-not make, is measured by reading: every answer is saved with its passages, and 15 questions' two
-answers are read blind, shuffled and without the systems' names, by a script kept out of the code
-base. The evaluation sees each system as a function from a question to a `Reply`; the CLI builds
-both, so `evaluation` imports neither the graph nor the generator.
+- `POST /api/ask` takes `ask`'s options and answers with JSON lines: one per step as it finishes,
+  then the outcome, or an error. The pipeline runs in a thread and hands each step to the response
+  through a queue, so a step reaches the page when it finishes. A request that cannot be answered
+  (an unknown author, an empty index) is refused with 400 before anything runs. One question runs
+  at a time: on a laptop the model is the bottleneck.
+- The page reads like a conversation: the question box (with every `ask` option: authors,
+  number of passages, other authors) stays at the bottom, and each question gets a reply right
+  under it. But each question is answered on its own: the page sends no earlier question or
+  answer, so a follow-up such as "And Mill?" is searched as it is written.
+- The reply draws the route as a line, the main stations (search, grade, write, check) on it and
+  the detours (rewrite, search again, web, write again, other authors) below it, lit as the steps
+  arrive; then the answer, the checks and the route taken, with the steps and their times folded
+  away.
+- The passages open in a panel beside the conversation (inside the reply on a narrow screen),
+  from a reply's button or from a citation, which brings its passage forward. The panel stays
+  closed until then, and follows the newest answer while open.
+- The page scrolls as a whole, with the bar, the question box and the panel held in place, so a
+  browser's full-size screenshot holds the whole conversation.
+- Every change of state moves: the panel and the folded lists slide, the route draws on from
+  station to station. With the system's "reduce motion" setting, everything changes at once.
 
 ## Quality gate
 
-**One gate everywhere.** `ruff` (lint + format), `mypy --strict` over source *and* tests, pytest with
-warnings treated as errors and branch coverage at 90% or above. The same `make check` runs
-locally, in the pre-commit hook and in CI, so they can never disagree.
+`ruff` (lint and format), `mypy --strict` over the source and the tests, and pytest with warnings
+as errors and branch coverage of at least 90% (100% in practice): one `make check`, run locally, in
+the pre-commit hook and in CI. Tests that need the real models (`make test-llm`) or the real corpus
+and network (`make test-integration`) are opt-in and run by hand before a commit.
+
+## Known limitations
+
+- **Errors only a reader finds.** In the blind reading, 3 of 15 corrective answers still had one: a
+  view an author reports and rejects given as his own (a chunk that starts mid-argument does not
+  say who is speaking), a sentence of Cicero's misread, and a garbled self-correction added by the
+  second draft.
+- **The second draft can make an answer worse** while fixing its quotations; it fixed most problems
+  in one run and half in another.
+- **Not fully repeatable.** Temperature 0 makes a single call repeatable, but not a whole run on
+  Ollama: the same code flagged 6 first drafts in one run and 12 in the next.
+- **Comparisons can lose one side** when that author's best passage on the subject is elsewhere in
+  the corpus (Mill on lying retrieves *On Liberty*, not *Utilitarianism*).
+- **Questions about the details of a work outside the corpus** (Plato's *Lysis*) can end with
+  nothing kept: the grader leaves out pages that say the dialogue reaches no conclusion.
+- **No follow-up questions.** Each question is answered on its own; the page looks like a
+  conversation, but a question that leans on the one before it ("Why does he say that?") is
+  searched as written.
+- **The model needs 22 GB of RAM;** `qwen3.5:9b` is the setting for 16 GB machines, and the
+  measurements here are for the 35B model only.

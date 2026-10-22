@@ -270,6 +270,18 @@ quote = "the occasion cannot arise when it could be to the state's interest"
 [[questions.evidence]]
 document = "plato-republic/book-ix"
 quote = "on what ground can we say that a man is profited by injustice or intemperance or other baseness"
+# Pooled from the answer evaluation (2026-10-22): passages the corrective pipeline's rewritten
+# search found, read and judged to answer. III#58 and #62 were read too: they frame the dispute
+# and decide one case, but do not give Cicero's answer.
+[[questions.evidence]]
+document = "cicero-de-officiis/book-iii"
+quote = "he is mistaken in thinking that any ills affecting either his person or his property are more serious than those affecting his soul"
+[[questions.evidence]]
+document = "cicero-de-officiis/book-iii"
+quote = "we cannot discover it anywhere except in good report, propriety, and moral rectitude"
+[[questions.evidence]]
+document = "cicero-de-officiis/book-iii"
+quote = "nothing can be expedient which is not at the same time morally right"
 
 [[questions]]
 id = "cicero-sources-of-duty"

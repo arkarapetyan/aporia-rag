@@ -4,7 +4,7 @@ Readers ask in modern English; the corpus is old translations ("Soveraign",
 "Common-wealth", "maxim"). Dense retrieval bridges most of that gap, but not
 all: for 2 of the 40 retrieval gold questions, the grader keeps no passage in
 the top 5 although the corpus answers them. Measured before this was built
-(2026-10-20, data/eval/spike_rewrites.py): the chat model's rewrites, in the
+(2026-10-20, docs/experiments.md): the chat model's rewrites, in the
 vocabulary of the author most likely to answer, put gold evidence in the top
 5 for all 3 retrieval questions that fail, in 1.5-1.9 s per rewrite. The
 prompt below is the one that was measured, with a reply of one field (see
@@ -35,8 +35,8 @@ writing the query: the 2026-10-20 Cicero query is the 2026-10-21 one ("Is it
 ever expedient to do injustice?") with more words after it, and the
 Wittgenstein query ended in "author: Ludwig Wittgenstein". A reply schema
 steers the model as its prompt does, so what the rewrites find was measured
-again with both fields (data/eval/spike_rewrite_variants.py, 8 in-corpus
-questions, rule fixed before the run). The author asked for first did best:
+again with both fields (8 in-corpus questions, rule fixed before the run;
+docs/experiments.md). The author asked for first did best:
 the model chooses whose words to use, then writes the query in them ("why
 men surrender natural liberty to a commonwealth"), and the rewritten search
 found gold evidence in the top 5 for 7 of 8 questions (3 of the 3 the loop

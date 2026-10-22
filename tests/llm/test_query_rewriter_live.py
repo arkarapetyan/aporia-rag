@@ -2,7 +2,7 @@
 
 Opt-in: `make test-llm`. They use the configured chat model, at temperature 0.
 They check the form of what it writes; what a rewrite finds was measured on
-the gold set before the rewriter was built (data/eval/spike_rewrites.py).
+the gold set before the rewriter was built (docs/experiments.md).
 """
 
 import re

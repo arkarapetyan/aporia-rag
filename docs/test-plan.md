@@ -14,6 +14,10 @@ A test is only useful if it can fail. Each boundary test below uses inputs where
 implementation would give a *different* answer than the intended one, so a passing test is
 evidence that the behaviour exists rather than a coincidence.
 
+Paths under `data/eval/` below name one-off measurement scripts (spikes) and their outputs, run on
+Aren's laptop. That folder is not part of the repository; the scripts were deleted once their
+results were recorded here and in `docs/experiments.md`.
+
 ## Test layers
 
 | Layer | Marker | Runs by default | What it covers |
@@ -1061,10 +1065,13 @@ steps shown live, as they finish.
   an error). A request that cannot be answered (an unknown author, an empty index) is refused
   before anything runs. One question runs at a time: on a laptop the model is the bottleneck, and
   two at once would each take twice as long.
-- **The page** (`ui/static`): the question and the `ask` options, a map of the loop whose nodes
-  light up as the steps arrive, the steps listed with their times, then the answer with each
-  citation linked to its passage, the passages left out and not graded, the other authors, the
-  checks and the route.
+- **The page** (`ui/static`), a conversation (Aren, 2026-10-22: the answer right under the
+  question, chat-like): the question box with `ask`'s options at the bottom; for each question, a
+  map of the loop whose nodes light up as the steps arrive, the steps with their times, then the
+  answer with each citation linked to its passage, the checks and the route; the passages, those
+  left out and not graded, and the other authors in a panel beside the conversation, closed until
+  a reply's button or a citation opens it. Each question is answered on its own: the page sends
+  no earlier question or answer.
 - `aporia-rag serve` starts it on this machine (127.0.0.1:8000 by default).
 
 The page's JavaScript has no test runner of its own: it is checked by rendering it against the
