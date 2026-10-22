@@ -94,6 +94,9 @@ uv run aporia-rag evaluate        # Hit@k and MRR of retrieval on 40 gold questi
 uv run aporia-rag evaluate --grade  # ...and the relevance grader against the gold set
 uv run aporia-rag evaluate --gold src/aporia_rag/evaluation/gold_loop.toml --grade
                                   # the questions the corrective loop is for
+uv run aporia-rag evaluate --gold src/aporia_rag/evaluation/gold_retrieval.toml \
+    --gold src/aporia_rag/evaluation/gold_loop.toml --answers data/eval/answers.jsonl
+                                  # plain vs. corrective RAG on all 49 questions (~20 min)
 make check                        # lint, strict type-check, tests with coverage: what CI runs
 make help                         # list all targets
 ```
@@ -111,9 +114,9 @@ sources as "Web sources" with their URLs. Only then does the question leave the 
 is relevant on the web either, it says so instead of answering. Every answer is checked before it
 is shown: each quotation must be word for word in a passage it cites, each citation must have a
 passage behind it, and a sentence that names an author must cite that author's passage. If not,
-the answer is written once more with the problems listed, and `ask` reports any that remain. `ask --all-authors` grades the best passage of every
-author and answers with one section per author, headed by the author and the passage number
-(about a minute on a laptop). A question that names authors is answered from those authors only:
+the answer is written once more with the problems listed, and `ask` reports any that remain.
+`ask --all-authors` grades the best passage of every author and answers with one section per
+author, headed by the author and the passage number (about a minute on a laptop). A question that names authors is answered from those authors only:
 one named author as with `--author` ("What does Kant say about lying?"), two or more as a survey of
 them ("How do Kant and Mill differ on lying?"), asking each author about the subject on their own.
 

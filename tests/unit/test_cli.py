@@ -10,6 +10,7 @@ import json
 import re
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import httpx
 import pytest
@@ -1264,3 +1265,141 @@ def test_ask_says_when_it_wrote_the_answer_again_and_what_still_fails(
         '- a quotation not word for word: "the only good thing"\n'
     ) in output
     assert re.search(r"generation [\d.]+s, revision [\d.]+s\)\n$", output)
+
+
+# --------------------------------------------------------------------------
+# evaluate --answers (Component 29)
+# --------------------------------------------------------------------------
+
+# A made-up citation: every answer, from either system, has a citation problem.
+MADE_UP_CITATION = "Only a good will is good without qualification [4]."
+
+
+def _kept_for_evaluation(prompt: str) -> bool:
+    """Kant for the good-will question, the web page for the language game, nothing else."""
+    question = prompt.rsplit("Question:", 1)[-1]
+    if "good without qualification" in question:
+        return "Immanuel Kant" in prompt
+    return "language game" in question and "wikipedia.org" in prompt
+
+
+def _evaluate_answers(
+    index_manifest: Path, gold: Path, settings: Settings, tmp_path: Path
+) -> tuple[FakeOllamaServer, ScriptedWebSearch, Path]:
+    server = FakeOllamaServer(
+        reply=MADE_UP_CITATION, structured_reply=_verdicts_and_rewrite(_kept_for_evaluation)
+    )
+    _index(index_manifest, settings, server)
+    outside = tmp_path / "outside.toml"
+    outside.write_text(OUTSIDE_THE_CORPUS, encoding="utf-8")
+    web = ScriptedWebSearch([PAGE])
+    answers = tmp_path / "eval" / "answers.jsonl"
+    server.requests.clear()
+    exit_code = main(
+        [
+            "evaluate", "--gold", str(gold), "--gold", str(outside),
+            "--answers", str(answers), "--manifest", str(index_manifest),
+        ],
+        transport=server.transport, settings=settings, web_search=web,
+    )  # fmt: skip
+    assert exit_code == 0
+    return server, web, answers
+
+
+def _records(answers: Path, system: str) -> list[dict[str, Any]]:
+    """The saved answers of one system, in gold-set order."""
+    lines = answers.read_text(encoding="utf-8").splitlines()
+    return [record for record in map(json.loads, lines) if record["system"] == system]
+
+
+def test_evaluate_answers_compares_plain_and_corrective_rag(
+    index_manifest: Path,
+    gold: Path,
+    settings: Settings,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:  # 29.7, 29.10
+    capsys.readouterr()
+
+    _, _, answers = _evaluate_answers(index_manifest, gold, settings, tmp_path)
+
+    output = capsys.readouterr().out
+    assert "3 gold questions (1 without evidence, not scored)" in output  # both sets, as one
+    report = output.split("\nanswers to ", 1)[1]
+    assert report.startswith(
+        "3 gold questions (2 with evidence, 1 without), plain RAG from the top 5 passages\n"
+    )
+    rows = [
+        r"^ +plain +corrective$",
+        r"^answered +3 +2$",
+        r"^  given a gold passage \(of 2\) +2 +1$",
+        r"^gold share of the passages given +0\.33 +0\.50$",
+        r"^outside questions answered \(of 1\)$",
+        r"^  from the corpus +1 +0$",
+        r"^  from the web +0 +1$",
+        r"^answers with a check problem +3 +2$",
+        r"^  written again +0 +2$",
+        r"^median seconds per question +\d+\.\d +\d+\.\d$",
+        r"^plain: routes plain 3; problems citation 3$",
+        r"^corrective: routes normal 1, web 2; problems citation 2$",
+    ]
+    for row in rows:
+        assert re.search(row, report, re.MULTILINE), report
+    assert report.endswith(f"\nanswers written to {answers}\n")
+
+
+def test_evaluate_without_gold_evaluates_the_packaged_retrieval_set(
+    index_manifest: Path, settings: Settings, capsys: pytest.CaptureFixture[str]
+) -> None:  # 29.10
+    server = FakeOllamaServer()
+    _index(index_manifest, settings, server)
+
+    exit_code = main(["evaluate"], transport=server.transport, settings=settings)
+
+    assert exit_code == 0
+    assert "\n40 gold questions, top 10 chunks each" in capsys.readouterr().out
+
+
+def test_plain_rag_answers_once_from_every_passage_and_is_checked(
+    index_manifest: Path, gold: Path, settings: Settings, tmp_path: Path
+) -> None:  # 29.8
+    server, _, answers = _evaluate_answers(index_manifest, gold, settings, tmp_path)
+
+    chats = [body for body in server.requests if "messages" in body]
+    plain, first_of_the_graph = chats[:3], chats[3]
+    # Plain RAG first: one answer per question, from all 3 passages of the test corpus (k = 5).
+    assert all("format" not in body for body in plain)
+    assert [len(_passage_headers(body["messages"][-1]["content"])) for body in plain] == [3, 3, 3]
+    assert "format" in first_of_the_graph  # the graph's first verdict
+    plain_records = _records(answers, "plain")
+    assert [record["problems"] for record in plain_records] == [["citation"]] * 3
+    assert {record["route"] for record in plain_records} == {"plain"}
+    assert not any(record["revised"] for record in plain_records)
+
+
+def test_the_corrective_system_is_the_graph(
+    index_manifest: Path, gold: Path, settings: Settings, tmp_path: Path
+) -> None:  # 29.9
+    _, web, answers = _evaluate_answers(index_manifest, gold, settings, tmp_path)
+
+    graph = {record["question_id"]: record for record in _records(answers, "corrective")}
+    assert list(graph) == ["good-will", "state-of-nature", "outside-the-corpus"]
+    good_will, state_of_nature, outside = graph.values()
+    assert good_will["route"] == "normal"
+    assert {source["id"].split("#")[0] for source in good_will["sources"]} == {
+        "kant-groundwork/first-section",
+        "kant-groundwork/second-section",
+    }
+    assert [source["gold"] for source in good_will["sources"]].count(True) == 1
+    assert good_will["revised"] is True  # its made-up citation, once more
+    assert good_will["problems"] == ["citation"]
+    # Nothing kept, a rewrite, a second search, then the web: no page answers this one.
+    assert state_of_nature["route"] == "web"
+    assert state_of_nature["answer"] is None
+    assert outside["route"] == "web"
+    assert [source["id"] for source in outside["sources"]] == [PAGE.id]
+    assert outside["sources"][0]["gold"] is False
+    assert [query for query, _ in web.calls] == [
+        "What is the life of man like without a common power?",
+        "What is a language game?",
+    ]

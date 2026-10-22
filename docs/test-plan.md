@@ -956,6 +956,60 @@ limitation, measured by the evaluation.
 | 28.8 | A survey is not checked |
 | 28.9 | The revision is timed as its own stage |
 
+## Comparing answers: component 29
+
+The corrective graph adds model calls (a verdict per passage, sometimes a rewrite, a web search
+and a second draft) to what plain RAG does: retrieve the top k, then answer from all of them. This
+measures what the calls buy, on the same questions, with the same models and the same answer
+prompt. Aren's decisions of 2026-10-22: the evaluation is part of the code base, so anyone can run
+it again, and faithfulness is measured as well, by reading answers blind.
+
+`evaluate --answers PATH` answers every gold question twice:
+
+- **Plain RAG:** the top 5 passages in the question's scope (the authors it names, as `ask`
+  searches), then one answer from all of them, checked by the same citation checks (layer 1) but
+  never written again.
+- **Corrective RAG:** the graph, as `ask` runs it with its defaults.
+
+Everything is measured with plain code against the gold sets (`--gold` may be given twice, so the
+40 retrieval questions and the 9 loop questions run as one set of 49):
+
+- **Evidence**, for the questions the corpus answers: the answers given at least one gold passage,
+  and the share of the passages given to the model that are gold. The gold labels are complete
+  only for what the pooled model retrieved for the question as asked, so a rewritten search can
+  find an answering passage that counts as not gold: the corrective share is a lower bound.
+- **Outside questions** (no evidence): the answers from corpus passages, which cannot answer them,
+  from web pages, and the questions left without an answer.
+- **Checks:** the answers with a layer 1 problem in the answer given, by kind, and how many the
+  graph wrote again.
+- **Time:** the median seconds per question. Plain RAG runs first, then the graph, each over all
+  questions, so neither benefits from the other's prompts in Ollama's cache within a question.
+
+The answers, with their passages marked gold or not, go to PATH (JSON Lines), for the reading that
+plain code cannot do. The reading is blind: a script outside the code base gives 15 questions'
+two answers in a shuffled order, without the systems' names, and the key is opened after every
+error is written down.
+
+The evaluation depends on a `System`, a function from a question to a `Reply` (the answer, how it
+was reached, whether its sources are web pages, the kinds of problem the checks found, whether it
+was written again), declared next to it. The CLI, the composition root, builds both systems, so
+`evaluation` imports neither the graph nor the generator.
+
+## Component 29: Answer evaluation (`aporia_rag.evaluation.answers`, `aporia_rag.cli`)
+
+| # | Test |
+|---|---|
+| 29.1 | `evaluate_answers` asks every system about every gold question once, system after system in the order given and questions in gold-set order, and keeps each reply with how long it took (a scripted clock makes it exact) |
+| 29.2 | A result marks each of its answer's sources as gold when it is a passage hit of the question's evidence; a result without an answer has no sources |
+| 29.3 | `summarize` counts the questions, the answers and the routes; for the questions with evidence, the answers given at least one gold passage, the passages given and the gold ones among them |
+| 29.4 | `summarize` counts, for the questions without evidence, the answers from the corpus, the answers from the web, and the questions without an answer |
+| 29.5 | `summarize` counts the answers with a problem, the problems by kind, the answers written again, and the median seconds per question |
+| 29.6 | `write_answers` writes one JSON line per system and question: the system, question id and text, route, seconds, the answer (null when there is none), whether it was written again, its sources (id, citation, text, gold or not) and the kind of each problem; it creates the file's folder |
+| 29.7 | `evaluate --answers PATH` prints, after the retrieval report, one column per system: answers, those with a gold passage, the gold share of the passages given, the outside questions answered from the corpus and from the web, the answers with a problem and written again, and the median seconds; then the corrective routes and where the answers went |
+| 29.8 | Plain RAG sends one answer request per question, with every passage retrieved in the question's scope (k = 5), and no verdict request; its answer is checked: a citation with no passage is counted |
+| 29.9 | The corrective system is the graph: its verdicts, rewrites and web searches happen, and its route, web flag, final problems and second draft are what the reply reports |
+| 29.10 | `--gold` given twice evaluates both sets as one; without `--answers`, no answer is requested (23.8) |
+
 ## Architecture rules (`tests/unit/test_architecture.py`, run in the default suite)
 
 The dependency rules of [architecture.md](architecture.md) are checked by

@@ -556,6 +556,23 @@ still found the evidence in the top 5. Hand-written rewrites in each author's vo
 (`kant-universal-law`, `cicero-expedient-and-right`, `hobbes-sovereign`), which bounds what a
 query rewriter can gain.
 
+**Comparing answers: what the corrective calls buy.** `evaluate --answers PATH` answers every gold
+question twice, with the same models and answer prompt: plain RAG answers from the top 5 passages
+in the question's scope, whatever they are; the graph grades them, searches again or on the web,
+and writes the answer again when the citation checks fail. Plain code then counts, per system
+(`evaluation.answers`): the answers given at least one gold passage and the gold share of the
+passages given; for the questions outside the corpus, the answers from corpus passages (which
+cannot answer them), from the web, or none; the answers with a citation-check problem; and the
+median time. `--gold` may be given twice, so the 40 retrieval and 9 loop questions run as one set.
+Plain RAG runs over every question first, then the graph, so neither is helped by the other's
+prompts in Ollama's cache. The gold labels are complete only for what the pooled model retrieved
+for the question as asked, so a passage a rewritten search finds can answer and still count as not
+gold: the graph's gold share is a lower bound. What plain code cannot see, a claim its passage does
+not make, is measured by reading: every answer is saved with its passages, and 15 questions' two
+answers are read blind, shuffled and without the systems' names, by a script kept out of the code
+base. The evaluation sees each system as a function from a question to a `Reply`; the CLI builds
+both, so `evaluation` imports neither the graph nor the generator.
+
 ## Quality gate
 
 **One gate everywhere.** `ruff` (lint + format), `mypy --strict` over source *and* tests, pytest with

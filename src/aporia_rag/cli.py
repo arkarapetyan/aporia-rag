@@ -6,6 +6,7 @@
     aporia-rag ask QUESTION          answer from the relevant passages, citing them
     aporia-rag evaluate [--model M]  measure retrieval on the gold questions [--dump PATH]
                                      [--grade: and the relevance grader]
+                                     [--answers PATH: and answers, plain vs corrective RAG]
 
 Each command parses its arguments, asks the `Container` for the components
 it needs, and prints. Expected failures (Ollama not running, a model not
@@ -16,7 +17,7 @@ pulled, the corpus not downloaded, invalid settings) are printed as one
 import argparse
 import re
 import sys
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from time import perf_counter
 
@@ -27,6 +28,8 @@ from aporia_rag.config import Settings, load_settings
 from aporia_rag.domain.errors import AporiaError
 from aporia_rag.domain.models import RetrievedChunk
 from aporia_rag.domain.ports import WebSearch
+from aporia_rag.evaluation.answers import Reply, Summary, System, evaluate_answers, summarize
+from aporia_rag.evaluation.answers import write_answers as write_answer_records
 from aporia_rag.evaluation.gold import GoldSet, load_gold_set
 from aporia_rag.evaluation.grading import (
     GradingReport,
@@ -43,6 +46,7 @@ from aporia_rag.evaluation.retrieval import (
     mean_reciprocal_rank,
     write_retrievals,
 )
+from aporia_rag.grading.citations import check_citations
 from aporia_rag.graph.corrective import ENOUGH, Outcome, Scope
 from aporia_rag.graph.corrective import search as search_in_scope
 from aporia_rag.indexing.indexer import WorkProgress
@@ -60,6 +64,8 @@ from aporia_rag.retrieval.names import authors_named_in
 type _Command = Callable[[argparse.Namespace, Container], int]
 
 _SNIPPET_LENGTH = 200
+# How many passages `ask` retrieves by default, and plain RAG answers from in `evaluate --answers`.
+_DEFAULT_K = 5
 # How many other authors `ask` grades after an answer. Each verdict is one
 # model call (2-4 s on an 8 GB laptop GPU), so this bounds the extra wait.
 _OTHER_AUTHORS = 4
@@ -183,9 +189,12 @@ def _parser() -> argparse.ArgumentParser:
     )
     evaluate.add_argument(
         "--gold",
+        action="append",
         type=Path,
-        default=None,
-        help="gold question set TOML file (default: the packaged set)",
+        dest="golds",
+        metavar="GOLD",
+        help="gold question set TOML file; repeat to evaluate several as one "
+        "(default: the packaged retrieval set)",
     )
     evaluate.add_argument(
         "--dump",
@@ -200,6 +209,16 @@ def _parser() -> argparse.ArgumentParser:
         help="also grade every retrieved chunk with the chat model and compare with the gold set "
         "(one model call per chunk)",
     )
+    evaluate.add_argument(
+        "--answers",
+        type=Path,
+        default=None,
+        metavar="PATH",
+        help=f"also answer every gold question with plain RAG (the top {_DEFAULT_K} passages) "
+        "and with the corrective graph, as `ask` would with the configured models, compare "
+        "them, and write every answer to PATH (JSON Lines; many model calls)",
+    )
+    _add_manifest_option(evaluate)
     evaluate.set_defaults(run=_evaluate)
     return parser
 
@@ -209,7 +228,7 @@ def _add_question_options(command: argparse.ArgumentParser) -> None:
     command.add_argument(
         "-k",
         type=_positive_int,
-        default=5,
+        default=_DEFAULT_K,
         help="how many passages (default: %(default)s; --all-authors takes one per author)",
     )
     scope = command.add_mutually_exclusive_group()
@@ -320,7 +339,12 @@ def _scope(args: argparse.Namespace, works: Sequence[WorkSpec]) -> Scope:
     authors = _authors(works)
     if args.all_authors:
         return Scope(survey=tuple(authors))
-    match authors_named_in(args.question, authors):
+    return _named_scope(args.question, authors)
+
+
+def _named_scope(question: str, authors: Sequence[str]) -> Scope:
+    """Only the authors `question` names: one is a filter, several a comparison."""
+    match authors_named_in(question, authors):
         case []:
             return Scope()
         case [author]:
@@ -495,7 +519,7 @@ _GRADING_DEPTHS = (5, DEPTH)
 
 
 def _evaluate(args: argparse.Namespace, container: Container) -> int:
-    gold = load_gold_set(args.gold)
+    gold = _load_gold(args.golds)
     models: list[str] = args.models or [container.settings.embedding.model]
     reports = {model: _evaluate_model(model, gold, container) for model in models}
     count = len(gold.questions)
@@ -519,7 +543,58 @@ def _evaluate(args: argparse.Namespace, container: Container) -> int:
     if args.dump is not None:
         write_retrievals(args.dump, reports, gold)
         print(f"\nretrieved chunks written to {args.dump}")
+    if args.answers is not None:
+        _require_index(container)
+        authors = _authors(load_manifest(args.manifest).works)
+        systems = {
+            "plain": _plain_rag(container, authors),
+            "corrective": _corrective_rag(container, authors),
+        }
+        answers = evaluate_answers(systems, gold)
+        _print_answers({name: summarize(results) for name, results in answers.items()})
+        write_answer_records(args.answers, answers)
+        print(f"\nanswers written to {args.answers}")
     return 0
+
+
+def _load_gold(paths: Sequence[Path] | None) -> GoldSet:
+    """The gold sets at `paths` as one (their question ids must differ), or the packaged one."""
+    if not paths:
+        return load_gold_set()
+    return GoldSet(questions=[q for path in paths for q in load_gold_set(path).questions])
+
+
+def _plain_rag(container: Container, authors: Sequence[str]) -> System:
+    """Retrieve the top passages in the question's scope, answer from all of them, check it."""
+
+    def reply(question: str) -> Reply:
+        passages = search_in_scope(
+            container.retriever, question, _named_scope(question, authors), k=_DEFAULT_K
+        )
+        answer = container.generator.answer(question, passages)
+        problems = check_citations(answer, named_in=lambda text: authors_named_in(text, authors))
+        return Reply(answer=answer, route="plain", problems=tuple(p.kind for p in problems))
+
+    return reply
+
+
+def _corrective_rag(container: Container, authors: Sequence[str]) -> System:
+    """The graph, as `ask` runs it with its defaults."""
+
+    def reply(question: str) -> Reply:
+        outcome = container.corrective_rag.answer(
+            question, _named_scope(question, authors), k=_DEFAULT_K, authors=authors
+        )
+        route = "web" if outcome.web else "loop" if outcome.query is not None else "normal"
+        return Reply(
+            answer=outcome.answer,
+            route=route,
+            web=outcome.web,
+            problems=tuple(problem.kind for problem in outcome.problems),
+            revised=bool(outcome.draft_problems),
+        )
+
+    return reply
 
 
 def _evaluate_model(model: str, gold: GoldSet, container: Container) -> RetrievalReport:
@@ -618,6 +693,46 @@ def _print_disagreements(report: GradingReport) -> None:
         label = "kept, not evidence" if verdict.relevant else "evidence, left out"
         chunk = f"{verdict.chunk_id:{chunk_width}}"
         print(f"{question_id:{id_width}}  {verdict.rank:>2}  {chunk}  {label}")
+
+
+_ANSWER_LABEL = 36  # width of the row labels of the answer comparison
+
+
+def _print_answers(summaries: dict[str, Summary]) -> None:
+    """One column per system: what its answers were given, where they came from, their checks."""
+    first = next(iter(summaries.values()))
+    print(
+        f"\nanswers to {first.questions} gold questions ({first.in_corpus} with evidence, "
+        f"{first.outside} without), plain RAG from the top {_DEFAULT_K} passages\n"
+    )
+    columns = [max(len(name), 5) + 2 for name in summaries]
+
+    def row(label: str, values: Sequence[object]) -> None:
+        cells = "".join(f"{value!s:>{width}}" for value, width in zip(values, columns, strict=True))
+        print(f"{label:{_ANSWER_LABEL}}{cells}".rstrip())
+
+    every = summaries.values()
+    row("", list(summaries))
+    row("answered", [summary.answered for summary in every])
+    row(f"  given a gold passage (of {first.in_corpus})", [s.grounded for s in every])
+    row(
+        "gold share of the passages given",
+        [_ratio(s.gold_passages / s.passages if s.passages else None) for s in every],
+    )
+    print(f"outside questions answered (of {first.outside})")
+    row("  from the corpus", [summary.outside_from_corpus for summary in every])
+    row("  from the web", [summary.outside_from_web for summary in every])
+    row("answers with a check problem", [summary.flagged for summary in every])
+    row("  written again", [summary.revised for summary in every])
+    row("median seconds per question", [f"{summary.median_seconds:.1f}" for summary in every])
+    print()
+    for name, summary in summaries.items():
+        problems = _counts(summary.problems) or "none"
+        print(f"{name}: routes {_counts(summary.routes)}; problems {problems}")
+
+
+def _counts(counts: Mapping[str, int]) -> str:
+    return ", ".join(f"{name} {count}" for name, count in counts.items())
 
 
 def _ratio(value: float | None) -> str:
