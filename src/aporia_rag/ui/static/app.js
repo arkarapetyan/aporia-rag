@@ -348,6 +348,39 @@ function passagesFor(outcome, exchange, where) {
   return fragment;
 }
 
+// -- The passages panel: closed until a reply's button or a citation opens it ---
+
+let panelFor = null; // the exchange whose passages the open panel shows
+
+function passagesLabel(outcome) {
+  const graded = outcome.left_out.length + outcome.skipped.length;
+  if (!outcome.sources.length) return `The passages graded (${graded})`;
+  return `${outcome.web ? "Web sources" : "Passages"} (${outcome.sources.length})`;
+}
+
+function syncButtons() {
+  exchanges.forEach((exchange, index) => {
+    $(".open-passages", exchange.element)?.setAttribute(
+      "aria-expanded", String(panelFor === index)
+    );
+  });
+}
+
+function openPanel(index) {
+  showInPanel(index);
+  panelFor = index;
+  $("#apparatus").hidden = false;
+  $(".app").classList.add("with-panel");
+  syncButtons();
+}
+
+function closePanel() {
+  panelFor = null;
+  $(".app").classList.remove("with-panel");
+  $("#apparatus").hidden = true;
+  syncButtons();
+}
+
 function showInPanel(index) {
   const { request, outcome } = exchanges[index];
   $("#apparatus-title").textContent = outcome.web && outcome.sources.length ? "Web sources" : "Passages";
@@ -380,11 +413,14 @@ function renderOutcome(run, outcome) {
   const inlinePassages = $(".inline-passages", element);
   const count = outcome.sources.length + outcome.others.length + outcome.left_out.length + outcome.skipped.length;
   inlinePassages.hidden = count === 0;
-  $("summary", inlinePassages).textContent =
-    `${outcome.web && outcome.sources.length ? "Web sources" : "Passages"} (${outcome.sources.length})`;
+  $("summary", inlinePassages).textContent = passagesLabel(outcome);
   $(".inline-passages-body", inlinePassages).replaceChildren(passagesFor(outcome, index, "inline"));
+  const button = $(".open-passages", element);
+  button.hidden = count === 0;
+  button.textContent = passagesLabel(outcome);
+  button.addEventListener("click", () => (panelFor === index ? closePanel() : openPanel(index)));
   body.hidden = false;
-  showInPanel(index);
+  if (panelFor !== null) openPanel(index); // an open panel follows the newest answer
 
   const total = (performance.now() - run.started) / 1000;
   const stages = STAGES.filter((stage) => stage in outcome.seconds).map(
@@ -533,7 +569,7 @@ document.addEventListener("click", (event) => {
   const exchange = Number(cite.dataset.exchange);
   let target;
   if (WIDE.matches) {
-    showInPanel(exchange);
+    openPanel(exchange);
     target = document.getElementById(`panel-${exchange}-${cite.dataset.source}`);
   } else {
     const box = $(".inline-passages", exchanges[exchange].element);
@@ -553,6 +589,11 @@ document.querySelectorAll(".example").forEach((button) =>
     form.requestSubmit();
   })
 );
+
+$("#close-panel").addEventListener("click", closePanel);
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && panelFor !== null) closePanel();
+});
 
 question.addEventListener("input", autoGrow);
 question.addEventListener("keydown", (event) => {

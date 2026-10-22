@@ -128,12 +128,16 @@ html {
   padding: 1.5rem clamp(1rem, 3vw, 2rem) 2rem;
 }
 
-.apparatus {
+/* The passages panel opens beside the conversation when asked for (a reply's
+   "Passages" button, or a citation), on a wide screen only; a narrow screen shows
+   them inside the reply instead. */
+.apparatus,
+.open-passages {
   display: none;
 }
 
 @media (min-width: 1000px) {
-  .app {
+  .app.with-panel {
     grid-template-columns: minmax(0, 1fr) minmax(22rem, 30rem);
   }
 
@@ -141,7 +145,11 @@ html {
     grid-column: 1 / -1;
   }
 
-  .apparatus {
+  .open-passages {
+    display: inline-block;
+  }
+
+  .app.with-panel .apparatus {
     position: sticky;
     top: var(--bar-height, 3.2rem);
     display: block;
@@ -484,6 +492,47 @@ html {
 }
 
 /* -- The passages: beside the conversation, or inside a reply on a narrow screen -- */
+
+.open-passages {
+  margin-top: 0.2rem;
+  padding: 0.3rem 0.9rem;
+  border: 1px solid var(--hairline);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--lapis);
+  font: 500 0.92rem var(--sans);
+  cursor: pointer;
+}
+
+.open-passages:hover,
+.open-passages[aria-expanded="true"] {
+  border-color: var(--lapis);
+  background: var(--lapis-wash);
+}
+
+.panel-head {
+  display: flex;
+  gap: 1rem;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.close-panel {
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--graphite);
+  font: 1.5rem / 1 var(--sans);
+  cursor: pointer;
+}
+
+.close-panel:hover {
+  background: var(--hairline);
+  color: var(--ink);
+}
 
 .panel-title {
   margin: 0;
