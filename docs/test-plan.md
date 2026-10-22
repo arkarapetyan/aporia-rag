@@ -922,11 +922,31 @@ view Aristotle reports and rejects given as his; Schopenhauer's "pendulum", from
 built, measured first on these 15 answers. The made-up numbers have a likely cause, fixed and
 measured in the next run: 4 of the 5 answers cited the prompt's example, "[2]", with one passage.
 
+**Measured again with both changes (2026-10-22, `data/eval/answers_c28b.py`).** Rules fixed before
+the run: the numbers named in the prompt stay if first drafts have at most 2 made-up citation
+numbers; writing again stays if at least half of the rewritten answers end with no problem. First
+drafts had no made-up number (10 before), and layer 1 flagged 6 of 48 (13 before), all
+quotations: the numbers stay. 3 of the 6 rewritten answers ended with no problem: writing again
+stays, by the rule's narrowest margin. Read against their passages, 5 of the 6 flags were real
+("shines" for "shine", "I did not even choose" made "not even to choose") and the rewrite fixed 2;
+once it made a sentence worse. The sixth was a false alarm, fixed since (28.1): Nietzsche's
+"switched off", in double quotation marks in the passage, quoted in single ones inside the
+answer's quotation. A rewrite ran for 6 of 48 answers, 6.3 s each (median); the median question
+took 11.3 s (10.7 before).
+
+**Layer 2 measured and dropped (2026-10-22, `data/eval/spike_layer2.py`).** One call per answer
+(the passages, the answer one numbered sentence per line, "reply with the numbers of the
+unsupported sentences") on the 15 answers read. Rule fixed before the run: kept if it names the
+wrong sentence in at least 4 of the 6 answers with an error, flags a sentence in at most 2 of the
+9 without one, and takes at most 6 s (median). It found 1 of the 6 (the view Aristotle reports
+and rejects), flagged 2 of the 9, in 2.5 s: dropped. The errors only reading finds stay a known
+limitation, measured by the evaluation.
+
 ## Component 28: Citation checks (`aporia_rag.grading.citations`)
 
 | # | Test |
 |---|---|
-| 28.1 | A quotation (in straight or curly double quotes) that occurs word for word in a passage its sentence cites passes; one that does not is a quote problem naming it. Case, spaces, line breaks, curly apostrophes and punctuation at the quote's ends do not count |
+| 28.1 | A quotation (in straight or curly double quotes) that occurs word for word in a passage its sentence cites passes; one that does not is a quote problem naming it. Case, spaces, line breaks, apostrophes and quotation marks inside the quotation (straight or curly, single or double: 'switched off' for "switched off.") and punctuation at the quote's ends do not count |
 | 28.2 | A quotation in a sentence that cites no passage must occur in one of the answer's passages |
 | 28.3 | A quotation with an ellipsis ("..." or "…") or an editor's change in brackets ("destroy[s] itself") passes when every part of it outside them occurs in the same cited passage |
 | 28.4 | A sentence that cites passages and names corpus authors must name the author of a passage it cites: "Plato argues … [1]" with [1] Cicero's is an author problem; "Cicero answers Hobbes [1]" with [1] Cicero's is not |

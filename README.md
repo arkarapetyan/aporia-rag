@@ -168,6 +168,7 @@ write the component, then run the full quality gate. Test lists live in
   to answer is not in it
 - [x] Citation checks on every answer (quotations word for word, citation numbers, the right
   author named), with the answer written once more when they fail
-- [ ] Groundedness grader: a model check of every sentence against its passages
+- [x] Groundedness grader (a model check of every sentence against its passages): measured and
+  dropped, as the local model found 1 of 6 errors read by hand
 - [ ] Evaluation: corrective vs. baseline RAG on a curated question set
 - [ ] Demo UI

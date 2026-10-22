@@ -463,8 +463,18 @@ made-up numbers had a cause in the prompt: 4 of the 5 answers that invented a ci
 the prompt's example, from a single passage. The prompt now gives no example number, and the user
 message names the numbers to cite ("There is one passage: cite it as [1]."). Reading 15 of the
 answers claim by claim found 6 errors no plain code can see, among them a view Aristotle reports
-and rejects given as his, and Schopenhauer's "pendulum" supplied from memory; a model check of each
-answer (layer 2) is measured on those 15 before it is built.
+and rejects given as his, and Schopenhauer's "pendulum" supplied from memory.
+
+**Measured again, and layer 2 dropped (2026-10-22).** With the numbers named, the 49 first drafts
+had no made-up citation, and layer 1 flagged 6 of 48 (13 before), all quotations; 5 were real and
+the rewrite fixed 2 ("shines" for Kant's "shine", "no copy of the Ideas" for Schopenhauer's "by no
+means … the copy of the Ideas"), at 6.3 s for each of the 6. The sixth was a false alarm, since
+fixed: Nietzsche's "switched off" quoted in single quotation marks inside the answer's double ones,
+so quotation marks no longer count. A model check of each answer (layer 2: the passages, the
+answer one numbered sentence per line, "which sentences do the passages not support?") found 1 of
+the 6 errors on the 15 answers read and flagged 2 of the 9 good ones, so it was not built: the
+local model does not see what it got wrong in the first place. Errors only a reader finds remain,
+and the evaluation measures them.
 
 ## Evaluation
 

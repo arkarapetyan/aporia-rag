@@ -91,6 +91,31 @@ def test_a_quote_changed_from_the_passage_is_a_problem(quote: str) -> None:  # 2
     ]
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Their drives were \"rendered worthless and 'switched off'\" [1].",
+        "Their drives were \u201crendered worthless and \u2018switched off\u2019\u201d [1].",
+    ],
+    ids=["straight", "curly"],
+)
+def test_quotation_marks_inside_a_quotation_do_not_count(text: str) -> None:  # 28.1
+    # Nietzsche (tr. Samuel), Second Essay#77: '...rendered worthless and "switched off."'
+    # quoted in an answer of 2026-10-22 with single quotation marks inside the double ones.
+    nietzsche = RetrievedChunk(
+        chunk=make_chunk(
+            "nietzsche/second-essay#77",
+            'adventure--suddenly all their instincts were rendered worthless and\n"switched off."',
+        ),
+        score=0.5,
+    )
+
+    changed = "rendered useless and 'switched off'"
+
+    assert _check(text, nietzsche) == []
+    assert _details(_check(f'They were "{changed}" [1].', nietzsche)) == [("quote", changed)]
+
+
 def test_a_quote_may_hold_a_full_stop() -> None:  # 28.1
     text = 'Plato: "the soul is more honourable than the body. Certainly, he said." [1]. Next.'
 

@@ -21,8 +21,9 @@ Sentences are split at a full stop, question or exclamation mark followed by
 a space, but never inside a quotation, and citations are read per sentence
 ("[1]", "[1][3]", "[1, 3]", "[5-6]"). A quotation is checked against the passages its
 sentence cites, or against all the answer's passages when it cites none.
-Case, spacing, curly quotes and apostrophes, Gutenberg's _italics_ and
-punctuation at a quotation's ends do not count; an ellipsis or an editor's
+Case, spacing, apostrophes and quotation marks (straight or curly, so that
+'switched off' inside a quotation matches the passage's "switched off."),
+Gutenberg's _italics_ and punctuation at a quotation's ends do not count; an ellipsis or an editor's
 change in brackets ("destroy[s] itself") splits a quotation into parts that
 must each occur.
 """
@@ -47,7 +48,8 @@ _QUOTATION: Final = re.compile(r"\"([^\"]+)\"|\u201c([^\u201d]+)\u201d")
 # Gaps in a quotation: an ellipsis, or an editor's change in brackets ("destroy[s] itself").
 _GAP: Final = re.compile(r"\.\.\.|\u2026|\[[^\]]*\]")
 _END_PUNCTUATION: Final = " \t\n.,;:!?"
-_APOSTROPHES: Final = str.maketrans({"\u2019": "'", "\u2018": "'", "_": None})
+# Dropped before comparing: apostrophes and quotation marks, straight or curly, and _italics_.
+_IGNORED: Final = str.maketrans(dict.fromkeys("'\"\u2018\u2019\u201c\u201d_"))
 
 
 @dataclass(frozen=True, slots=True)
@@ -139,4 +141,4 @@ def _occurs(quotation: str, passage: RetrievedChunk) -> bool:
 
 
 def _normal(text: str) -> str:
-    return " ".join(text.translate(_APOSTROPHES).casefold().split())
+    return " ".join(text.translate(_IGNORED).casefold().split())
