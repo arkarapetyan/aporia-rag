@@ -19,7 +19,7 @@ worth a model call).
 
 Sentences are split at a full stop, question or exclamation mark followed by
 a space, but never inside a quotation, and citations are read per sentence
-("[1]", "[1][3]", "[1, 3]"). A quotation is checked against the passages its
+("[1]", "[1][3]", "[1, 3]", "[5-6]"). A quotation is checked against the passages its
 sentence cites, or against all the answer's passages when it cites none.
 Case, spacing, curly quotes and apostrophes, Gutenberg's _italics_ and
 punctuation at a quotation's ends do not count; an ellipsis or an editor's
@@ -41,7 +41,8 @@ type NamedIn = Callable[[str], Sequence[str]]
 # A full stop, question or exclamation mark (or one closing a quotation) and a space, unless
 # a citation follows: in 'said." [1].' the citation still belongs to the quotation.
 _SENTENCE_END: Final = re.compile(r"(?<=[.!?])\s+(?!\[)|(?<=[.!?][\"\u201d])\s+(?!\[)")
-_CITATION: Final = re.compile(r"\[(\d+(?:\s*,\s*\d+)*)\]")
+_CITATION: Final = re.compile(r"\[(\d+(?:\s*[,\-\u2013]\s*\d+)*)\]")  # [1], [1, 3], [5-6]
+_RANGE: Final = re.compile(r"(\d+)\s*[\-\u2013]\s*(\d+)")
 _QUOTATION: Final = re.compile(r"\"([^\"]+)\"|\u201c([^\u201d]+)\u201d")
 # Gaps in a quotation: an ellipsis, or an editor's change in brackets ("destroy[s] itself").
 _GAP: Final = re.compile(r"\.\.\.|\u2026|\[[^\]]*\]")
@@ -57,12 +58,28 @@ class Problem:
     sentence: str
     detail: str  # the citation with no passage, the quotation as written, or who is named
 
+    @property
+    def note(self) -> str:
+        """What the model must fix, for a request to write the answer again."""
+        if self.kind == "citation":
+            return (
+                f'"{self.sentence}" cites {self.detail}, a number no passage has: '
+                "cite only the numbers of the passages."
+            )
+        if self.kind == "quote":
+            return (
+                f'The quotation "{self.detail}" is not word for word in a passage its sentence '
+                "cites: quote the exact words of the passage you cite, or do not use quotation "
+                "marks."
+            )
+        return f'"{self.sentence}" {self.detail}: name the author whose passage you cite.'
+
 
 def check_citations(answer: Answer, *, named_in: NamedIn) -> list[Problem]:
     """Every problem plain code finds in `answer`, sentence by sentence, in order."""
     problems: list[Problem] = []
     for sentence in _sentences(answer.text):
-        numbers = [int(n) for group in _CITATION.findall(sentence) for n in group.split(",")]
+        numbers = [n for group in _CITATION.findall(sentence) for n in _numbers(group)]
         cited = [answer.sources[n - 1] for n in numbers if 1 <= n <= len(answer.sources)]
         problems += [
             Problem("citation", sentence, f"[{n}]")
@@ -85,6 +102,17 @@ def check_citations(answer: Answer, *, named_in: NamedIn) -> list[Problem]:
                 )
                 problems.append(Problem("author", sentence, f"names {', '.join(named)}; {by}"))
     return problems
+
+
+def _numbers(group: str) -> list[int]:
+    """The numbers of one citation: "1, 3" gives 1 and 3, "5-6" gives 5 and 6."""
+    numbers: list[int] = []
+    for part in group.split(","):
+        if span := _RANGE.fullmatch(part.strip()):
+            numbers += range(int(span[1]), int(span[2]) + 1)
+        else:
+            numbers.append(int(part))
+    return numbers
 
 
 def _sentences(text: str) -> list[str]:

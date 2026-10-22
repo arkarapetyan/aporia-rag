@@ -42,7 +42,7 @@ You answer questions about philosophy from numbered passages of primary texts.
 - Use only the passages that bear on the question, and leave the others out. If none \
 of them answers it, say so instead of answering from memory.
 {_ATTRIBUTION}
-- Cite the passage behind each claim by its number in square brackets, like [2]. {_QUOTES}
+- Cite the passage behind each claim by its number in square brackets. {_QUOTES}
 - Keep different authors' views apart.
 - Write clear, modern English in a few short paragraphs."""
 
@@ -78,9 +78,29 @@ class Generator:
     def answer(self, question: str, passages: Sequence[RetrievedChunk]) -> Answer:
         """The model's answer, citing `passages` by their numbers in the order given."""
         reply = self._model.chat(
-            _messages(ANSWER_PROMPT, question, passages), max_tokens=ANSWER_MAX_TOKENS
+            _messages(ANSWER_PROMPT, question, passages, cite=True),
+            max_tokens=ANSWER_MAX_TOKENS,
         )
         return Answer(text=reply, sources=tuple(passages))
+
+    def revise(self, question: str, draft: Answer, notes: Sequence[str]) -> Answer:
+        """The answer written again from the draft's passages, told by `notes` what to fix.
+
+        The model sees the conversation it answered in, its own draft, and the
+        notes; the new answer cites the same passages by the same numbers.
+        """
+        listed = "\n".join(f"- {note}" for note in notes)
+        messages = [
+            *_messages(ANSWER_PROMPT, question, draft.sources, cite=True),
+            ChatMessage(role="assistant", content=draft.text),
+            ChatMessage(
+                role="user",
+                content=f"Your answer has these problems:\n{listed}\n\n"
+                "Write the whole answer again with them fixed, keeping to the same rules.",
+            ),
+        ]
+        reply = self._model.chat(messages, max_tokens=ANSWER_MAX_TOKENS)
+        return Answer(text=reply, sources=draft.sources)
 
     def survey(self, question: str, passages: Sequence[RetrievedChunk]) -> Answer:
         """One section per passage, in the order given: its author and number, then a paragraph."""
@@ -99,16 +119,34 @@ class Generator:
 
 
 def _messages(
-    instructions: str, question: str, passages: Sequence[RetrievedChunk]
+    instructions: str, question: str, passages: Sequence[RetrievedChunk], *, cite: bool = False
 ) -> list[ChatMessage]:
-    numbered = (
+    """The instructions, then the numbered passages, the numbers to cite if `cite`, the question."""
+    numbered = [
         f"[{number}] {passage.chunk.metadata.citation}\n{passage.chunk.text}"
         for number, passage in enumerate(passages, start=1)
-    )
+    ]
+    if cite:
+        numbered.append(_numbers_to_cite(len(passages)))
     return [
         ChatMessage(role="system", content=instructions),
         ChatMessage(role="user", content="\n\n".join([*numbered, f"Question: {question}"])),
     ]
+
+
+def _numbers_to_cite(count: int) -> str:
+    """The citations an answer may use, named: no number for the model to invent or copy.
+
+    With an example number in the prompt ("like [2]"), 4 of the 5 answers
+    that made up citations on 2026-10-21 cited [2] from a single passage.
+    """
+    match count:
+        case 1:
+            return "There is one passage: cite it as [1]."
+        case 2:
+            return "There are 2 passages: cite them as [1] and [2]."
+        case _:
+            return f"There are {count} passages: cite them as [1] to [{count}]."
 
 
 def _survey_reply(count: int) -> type[SurveyReply]:

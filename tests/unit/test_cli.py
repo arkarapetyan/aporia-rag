@@ -1240,3 +1240,27 @@ def test_ask_lists_the_passages_it_did_not_grade(
         "- Immanuel Kant, Fundamental Principles of the Metaphysic of Morals, Second Section "
         "(kant-groundwork/second-section#0)\n"
     ) in output
+
+
+def test_ask_says_when_it_wrote_the_answer_again_and_what_still_fails(
+    index_manifest: Path, settings: Settings, capsys: pytest.CaptureFixture[str]
+) -> None:  # 20.19
+    # The fake server gives the same reply twice: the problem remains after the revision.
+    server = FakeOllamaServer(reply='Kant calls it "the only good thing" [1].')
+    _index(index_manifest, settings, server)
+    capsys.readouterr()
+
+    exit_code = _run(
+        "ask", GOOD_WILL_QUESTION, "-k", "1",
+        manifest=index_manifest, settings=settings, transport=server.transport,
+    )  # fmt: skip
+
+    assert exit_code == 0
+    assert len(server.chat_requests) == 2  # the answer, then once more
+    output = capsys.readouterr().out
+    assert (
+        "\nThe first answer had 1 problem with its passages, so it was written again.\n"
+        "\nStill not borne out by its passages:\n"
+        '- a quotation not word for word: "the only good thing"\n'
+    ) in output
+    assert re.search(r"generation [\d.]+s, revision [\d.]+s\)\n$", output)

@@ -451,8 +451,20 @@ passages and names corpus authors must name the author of one of them ("Cicero a
 passes). Run on the 7 answers saved before it existed, it flagged Cicero-as-Plato, both Hobbes
 quotations and a scare-quoted "expediency" the passages do not contain, and nothing else; the
 reported-argument error is beyond it. The check reaches the corpus's authors through a function it
-is given, since `grading` does not import `retrieval`. Whether `ask` regenerates or warns, and
-whether a model check (layer 2) is worth its calls, is decided on 49 answers measured first.
+is given, since `grading` does not import `retrieval`.
+
+**Measured on 49 answers, then built.** Layer 1 flagged 13 of 48 answers, every one of its 19
+problems real: 9 made-up citation numbers, 2 quotations from another passage than the one cited, 6
+quotations changed in a word ("use" for "using", "he" for "I") and 2 made up. So the graph checks
+every answer but a survey and, when it finds problems, writes the answer once more: the model gets
+its own draft back (the one place the application sends an `assistant` message) and a note per
+problem saying what to fix; what still fails is reported with the answer, never hidden. The
+made-up numbers had a cause in the prompt: 4 of the 5 answers that invented a citation cited [2],
+the prompt's example, from a single passage. The prompt now gives no example number, and the user
+message names the numbers to cite ("There is one passage: cite it as [1]."). Reading 15 of the
+answers claim by claim found 6 errors no plain code can see, among them a view Aristotle reports
+and rejects given as his, and Schopenhauer's "pendulum" supplied from memory; a model check of each
+answer (layer 2) is measured on those 15 before it is built.
 
 ## Evaluation
 

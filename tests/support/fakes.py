@@ -181,13 +181,14 @@ def always_relevant(prompt: str) -> str:
 class ScriptedChatModel:
     """A `ChatModel` that gives scripted replies and records every conversation it receives.
 
-    `chat` always returns `reply`; `chat_structured` parses the JSON that
-    `structured_reply` returns for the last message of the conversation.
+    `chat` returns `reply` (or what it returns for the last message, if it is
+    a function); `chat_structured` parses the JSON that `structured_reply`
+    returns for the last message of the conversation.
     """
 
     def __init__(
         self,
-        reply: str = "Only a good will is good without qualification [1].",
+        reply: str | Callable[[str], str] = "Only a good will is good without qualification [1].",
         *,
         structured_reply: Callable[[str], str] = always_relevant,
     ) -> None:
@@ -200,7 +201,7 @@ class ScriptedChatModel:
     def chat(self, messages: Sequence[ChatMessage], *, max_tokens: int) -> str:
         self.conversations.append(list(messages))
         self.max_tokens.append(max_tokens)
-        return self.reply
+        return self.reply if isinstance(self.reply, str) else self.reply(messages[-1].content)
 
     def chat_structured[M: BaseModel](
         self, messages: Sequence[ChatMessage], schema: type[M], *, max_tokens: int

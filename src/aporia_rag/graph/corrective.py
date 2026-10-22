@@ -8,7 +8,9 @@ again in the same scope, and grades what is new. If that finds nothing
 either, it searches the web, the last resort, and grades the pages the same
 way. When even they do not answer, the outcome says so.
 
-    START -> [ask_each_author] -> retrieve -> grade -> generate -> END
+    START -> [ask_each_author] -> retrieve -> grade -> generate -> check -> END
+                                                                  |   ^
+                                    (problems, the first time)    +-> revise
 
     after grade, when nothing is kept:
       not rewritten yet -> rewrite -> retrieve     the author it names is in the corpus
@@ -40,6 +42,12 @@ passages. The stop never changes whether the loop starts, since it comes
 only after a kept passage. A survey grades every author's passage: each is
 a section of its own.
 
+Every answer but a survey is checked with plain code (`grading.citations`):
+quotations word for word, citations with a passage behind them, the right
+author named. With problems, the answer is written once more with them
+listed (one more call, measured on 2026-10-21: 13 of 48 answers flagged),
+and what remains is reported with it.
+
 LangGraph states the loop as nodes and conditional edges, so the web
 fallback is one node and three edges. It is the only package that uses it.
 """
@@ -56,6 +64,7 @@ from aporia_rag.domain.errors import ProviderError
 from aporia_rag.domain.models import Answer, RetrievedChunk
 from aporia_rag.domain.ports import WebSearch
 from aporia_rag.generation.generator import Generator
+from aporia_rag.grading.citations import Problem, check_citations
 from aporia_rag.grading.relevance import RelevanceGrader
 from aporia_rag.retrieval.names import authors_named_in
 from aporia_rag.retrieval.retriever import Retriever
@@ -67,6 +76,8 @@ _GRADE: Final = "grade"
 _REWRITE: Final = "rewrite"
 _WEB_SEARCH: Final = "web_search"
 _GENERATE: Final = "generate"
+_CHECK: Final = "check"
+_REVISE: Final = "revise"
 
 ENOUGH: Final = 2  # relevant passages after which grading stops (not in a survey)
 
@@ -111,6 +122,8 @@ class Outcome:
     web: bool = False  # the web was searched: the answer's sources, if any, are web pages
     web_error: str | None = None  # why the web search failed, if it did
     author_questions: tuple[str, ...] = ()  # a comparison: the question asked of each author
+    draft_problems: tuple[Problem, ...] = ()  # found in the first answer: it was written again
+    problems: tuple[Problem, ...] = ()  # found in the answer given, the second if there was one
     seconds: Mapping[str, float] = field(default_factory=dict)  # by stage: retrieval, grading...
 
     @property
@@ -134,6 +147,9 @@ class _State(TypedDict, total=False):
     relevant: list[RetrievedChunk]
     skipped: list[RetrievedChunk]
     answer: Answer | None
+    draft_problems: list[Problem]
+    problems: list[Problem]
+    revised: bool
     seconds: dict[str, float]
 
 
@@ -171,6 +187,9 @@ class CorrectiveRAG:
             "relevant": [],
             "skipped": [],
             "answer": None,
+            "draft_problems": [],
+            "problems": [],
+            "revised": False,
             "seconds": {},
         }
         end: _State = self._graph.invoke(start)  # type: ignore[assignment]
@@ -184,6 +203,8 @@ class CorrectiveRAG:
             web=end["web"],
             web_error=end["web_error"],
             author_questions=tuple(end["author_questions"].values()),
+            draft_problems=tuple(end["draft_problems"]),
+            problems=tuple(end["problems"]),
             seconds=dict(end["seconds"]),
         )
 
@@ -195,6 +216,8 @@ class CorrectiveRAG:
         graph.add_node(_REWRITE, self._rewrite)
         graph.add_node(_WEB_SEARCH, self._search_web)
         graph.add_node(_GENERATE, self._generate)
+        graph.add_node(_CHECK, self._check)
+        graph.add_node(_REVISE, self._revise)
         graph.add_conditional_edges(START, self._first_step, [_ASK_EACH_AUTHOR, _RETRIEVE])
         graph.add_edge(_ASK_EACH_AUTHOR, _RETRIEVE)
         graph.add_edge(_RETRIEVE, _GRADE)
@@ -203,7 +226,9 @@ class CorrectiveRAG:
         )
         graph.add_conditional_edges(_REWRITE, self._after_rewrite, [_RETRIEVE, _WEB_SEARCH])
         graph.add_edge(_WEB_SEARCH, _GRADE)
-        graph.add_edge(_GENERATE, END)
+        graph.add_edge(_GENERATE, _CHECK)
+        graph.add_conditional_edges(_CHECK, self._after_check, [_REVISE, END])
+        graph.add_edge(_REVISE, _CHECK)
         return graph.compile()
 
     # -- routing ------------------------------------------------------------
@@ -225,6 +250,10 @@ class CorrectiveRAG:
     @staticmethod
     def _after_rewrite(state: _State) -> str:
         return _WEB_SEARCH if state["outside_author"] is not None else _RETRIEVE
+
+    @staticmethod
+    def _after_check(state: _State) -> str:
+        return _REVISE if state["problems"] and not state["revised"] else END  # once
 
     # -- nodes --------------------------------------------------------------
 
@@ -301,6 +330,29 @@ class CorrectiveRAG:
         write = self._generator.survey if state["scope"].survey else self._generator.answer
         answer = write(state["question"], state["relevant"])
         return {"answer": answer, "seconds": _add(state, "generation", started)}
+
+    def _check(self, state: _State) -> _State:
+        problems = _checked(state)  # plain code, too quick to be a stage of its own
+        if state["revised"]:
+            return {"problems": problems}
+        return {"problems": problems, "draft_problems": problems}
+
+    def _revise(self, state: _State) -> _State:
+        started = perf_counter()
+        draft = state["answer"]
+        assert draft is not None  # checked: there are problems only in an answer
+        notes = [problem.note for problem in state["problems"]]
+        answer = self._generator.revise(state["question"], draft, notes)
+        return {"answer": answer, "revised": True, "seconds": _add(state, "revision", started)}
+
+
+def _checked(state: _State) -> list[Problem]:
+    """The plain-code problems of the state's answer; none for a survey (it cites no numbers)."""
+    answer = state["answer"]
+    if answer is None or state["scope"].survey:
+        return []
+    authors = state["authors"]
+    return check_citations(answer, named_in=lambda text: authors_named_in(text, authors))
 
 
 def _add(state: _State, stage: str, started: float) -> dict[str, float]:

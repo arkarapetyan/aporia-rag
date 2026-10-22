@@ -108,7 +108,10 @@ is relevant, it rewrites the question once into the corpus's vocabulary, says so
 again; if nothing is relevant then either, or the author most likely to answer is not in the corpus
 (Wittgenstein, say), it searches the web and grades the pages like passages, listing the answer's
 sources as "Web sources" with their URLs. Only then does the question leave the machine. If nothing
-is relevant on the web either, it says so instead of answering. `ask --all-authors` grades the best passage of every
+is relevant on the web either, it says so instead of answering. Every answer is checked before it
+is shown: each quotation must be word for word in a passage it cites, each citation must have a
+passage behind it, and a sentence that names an author must cite that author's passage. If not,
+the answer is written once more with the problems listed, and `ask` reports any that remain. `ask --all-authors` grades the best passage of every
 author and answers with one section per author, headed by the author and the passage number
 (about a minute on a laptop). A question that names authors is answered from those authors only:
 one named author as with `--author` ("What does Kant say about lying?"), two or more as a survey of
@@ -163,6 +166,8 @@ write the component, then run the full quality gate. Test lists live in
   comparisons asked of each author on their own
 - [x] Web search fallback (`ddgs`): when nothing in the corpus answers, or the author most likely
   to answer is not in it
-- [ ] Groundedness and answer-relevance graders
+- [x] Citation checks on every answer (quotations word for word, citation numbers, the right
+  author named), with the answer written once more when they fail
+- [ ] Groundedness grader: a model check of every sentence against its passages
 - [ ] Evaluation: corrective vs. baseline RAG on a curated question set
 - [ ] Demo UI

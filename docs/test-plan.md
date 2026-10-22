@@ -48,7 +48,7 @@ a document). Only *our* constraints are tested here, not pydantic itself.
 | 1.15 | `common_dimension` returns the shared vector size and raises `VectorDimensionError` (a `ValueError`) on mixed, unexpected or empty vectors | One rule for every vector store. |
 | 1.16 | `SourceMetadata.citation` is "Author, Title, Section", or "Author, Title" without a section | One citation format for the index, the CLI and (later) generated answers. |
 | 1.17 | `check_same_space` refuses an embedder and a store from different embedding spaces, naming both | Shared by the indexer and the retriever. |
-| 1.18 | `ChatMessage` has the role `system` or `user` and non-empty content | A role no adapter can map must fail here, not at the provider. (`assistant` arrives with the first multi-turn caller.) |
+| 1.18 | `ChatMessage` has the role `system`, `user` or `assistant` (the model's own earlier reply, sent back when it revises an answer: 19.5) and non-empty content | A role no adapter can map must fail here, not at the provider. |
 
 ## Component 2: Recursive chunker (`aporia_rag.ingestion.chunker`)
 
@@ -594,10 +594,12 @@ on every request.
 
 | # | Test |
 |---|---|
-| 19.1 | The model receives the system prompt, then one user message: the passages numbered from 1 in the order given, each headed by its citation and followed by its exact text, and the question last |
+| 19.1 | The model receives the system prompt, then one user message: the passages numbered from 1 in the order given, each headed by its citation and followed by its exact text, then the numbers it may cite, and the question last |
 | 19.2 | The answer is the model's reply, with the passages as its sources, in the order of their numbers |
-| 19.3 | `survey` sends the same user message with the survey prompt as a structured request for exactly one paragraph per passage, and returns one section per passage, headed by the passage's author and number (`Immanuel Kant [2]`), with the passages as its sources |
+| 19.3 | `survey` sends the same passages and question (without the numbers to cite) with the survey prompt as a structured request for exactly one paragraph per passage, and returns one section per passage, headed by the passage's author and number (`Immanuel Kant [2]`), with the passages as its sources |
 | 19.4 | The generator caps an answer at 1,024 tokens (the longest so far: about 550) and a survey at 256 tokens per passage |
+| 19.5 | `revise` sends the answer's messages, then the draft as the model's own reply, then one user message listing what to fix and asking for the whole answer again; it returns the new answer, with the same passages as its sources, capped like an answer |
+| 19.6 | The numbers the model may cite are named for it: "There is one passage: cite it as [1]", "...cite them as [1] and [2]", "...as [1] to [5]"; the answer prompt gives no example number (2026-10-21: with one passage, 4 of 5 answers that made up citations cited the prompt's example, [2]) |
 
 ## Component 20: `ask` command (`aporia_rag.cli`)
 
@@ -621,6 +623,7 @@ on every request.
 | 20.16 | When the web search fails, `ask` says why, still lists the passages it left out, and exits with 0 |
 | 20.17 | Without `--others`, `ask` does not look for other authors: no verdict beyond those of the answer, and no "other authors" in the time report |
 | 20.18 | `ask` lists the passages it did not grade, because enough relevant ones came before them (27.1), after those it left out |
+| 20.19 | When the first draft had problems, `ask` says that it wrote the answer again, and lists under the answer the problems that remain |
 
 ## Component 21: Relevance grader (`aporia_rag.grading.relevance`)
 
@@ -908,6 +911,17 @@ writes the answer once more with the problems listed (one more call, only then);
 prints them under the answer. Layer 2 is built only if the reading finds errors layer 1 cannot see
 in at least 3 of the 15 answers.
 
+**Measured (2026-10-21, `data/eval/answers-c28.jsonl`).** Layer 1 flagged 13 of 48 answers, and
+every one of the 19 problems was real: 9 made-up citation numbers in 5 answers (plus a "[5-6]" it
+did not read), 2 quotations from another passage than the one cited, 6 small changes inside
+quotations ("use" for "using", "he" for "I"), 2 made-up quotations. So `ask` writes the answer
+once more when layer 1 finds problems. Of the 15 answers read, 6 had errors layer 1 cannot see: a
+view Aristotle reports and rejects given as his; Schopenhauer's "pendulum", from memory; Hobbes's
+"although they love liberty" turned into "because"; a remark of Adeimantus given to Socrates; a
+"test" the Kant passage never states; a misread closing sentence of Aristotle's. So layer 2 is
+built, measured first on these 15 answers. The made-up numbers have a likely cause, fixed and
+measured in the next run: 4 of the 5 answers cited the prompt's example, "[2]", with one passage.
+
 ## Component 28: Citation checks (`aporia_rag.grading.citations`)
 
 | # | Test |
@@ -916,7 +930,11 @@ in at least 3 of the 15 answers.
 | 28.2 | A quotation in a sentence that cites no passage must occur in one of the answer's passages |
 | 28.3 | A quotation with an ellipsis ("..." or "…") or an editor's change in brackets ("destroy[s] itself") passes when every part of it outside them occurs in the same cited passage |
 | 28.4 | A sentence that cites passages and names corpus authors must name the author of a passage it cites: "Plato argues … [1]" with [1] Cicero's is an author problem; "Cicero answers Hobbes [1]" with [1] Cicero's is not |
-| 28.5 | Citations are read per sentence, as "[1]", "[1][3]" or "[1, 3]"; a number with no passage is a citation problem |
+| 28.5 | Citations are read per sentence, as "[1]", "[1][3]", "[1, 3]" or a range, "[5-6]"; a number with no passage is a citation problem |
+| 28.6 | Every problem has a note that tells the model what to fix |
+| 28.7 | After an answer (not a survey), the graph runs the checks: with no problem it ends; with problems it asks once for the answer again with the problems' notes (19.5), checks the new answer and ends; the outcome keeps the first draft's problems and those that remain |
+| 28.8 | A survey is not checked |
+| 28.9 | The revision is timed as its own stage |
 
 ## Architecture rules (`tests/unit/test_architecture.py`, run in the default suite)
 

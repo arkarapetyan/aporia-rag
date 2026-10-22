@@ -1,4 +1,4 @@
-"""Tests for aporia_rag.grading.citations, plain-code checks of an answer (test plan: 28.1-28.5).
+"""Tests for aporia_rag.grading.citations, plain-code checks of an answer (test plan: 28.1-28.6).
 
 The passages are cut from the real ones behind the errors read in live answers
 (Cicero, De Officiis III#24; Plato, Republic IX#59; Hobbes, Leviathan XVII#0).
@@ -173,7 +173,7 @@ def test_naming_an_author_of_a_cited_passage_passes(text: str) -> None:  # 28.4
     assert _check(text, CICERO, PLATO) == []
 
 
-@pytest.mark.parametrize("citations", ["[1][2]", "[1, 2]", "[2] [1]"])
+@pytest.mark.parametrize("citations", ["[1][2]", "[1, 2]", "[2] [1]", "[1-2]", "[1\u20132]"])
 def test_citations_are_read_in_every_form(citations: str) -> None:  # 28.5
     text = f'Plato: "the soul is more honourable than the body" {citations}.'
 
@@ -184,3 +184,34 @@ def test_a_citation_with_no_passage_is_a_problem() -> None:  # 28.5
     assert _check("The soul comes first [3].", CICERO, PLATO) == [
         Problem(kind="citation", sentence="The soul comes first [3].", detail="[3]")
     ]
+
+
+def test_a_range_beyond_the_passages_is_a_problem_for_each_number() -> None:  # 28.5
+    assert _details(_check("Doubt is removed [2-3].", CICERO, PLATO)) == [("citation", "[3]")]
+
+
+@pytest.mark.parametrize(
+    ("text", "note"),
+    [
+        (
+            "The soul comes first [3].",
+            '"The soul comes first [3]." cites [3], a number no passage has: '
+            "cite only the numbers of the passages.",
+        ),
+        (
+            'Men want "natural Passions" [1].',
+            'The quotation "natural Passions" is not word for word in a passage its sentence '
+            "cites: quote the exact words of the passage you cite, or do not use quotation marks.",
+        ),
+        (
+            "Plato ranks the soul above the body [1].",
+            '"Plato ranks the soul above the body [1]." names Plato; [1] is by Marcus Tullius '
+            "Cicero: name the author whose passage you cite.",
+        ),
+    ],
+    ids=["citation", "quote", "author"],
+)
+def test_every_problem_says_what_to_fix(text: str, note: str) -> None:  # 28.6
+    [problem] = _check(text, CICERO, HOBBES)
+
+    assert problem.note == note

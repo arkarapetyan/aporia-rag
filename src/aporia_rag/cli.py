@@ -371,7 +371,13 @@ def _require_index(container: Container) -> None:
 
 
 # The stages of an answer, in the order the time report lists them.
-_STAGES = ("rewriting", "retrieval", "grading", "web search", "generation")
+_STAGES = ("rewriting", "retrieval", "grading", "web search", "generation", "revision")
+# How `ask` names each kind of problem the answer checks find (`grading.citations`).
+_PROBLEMS = {
+    "citation": "a citation with no passage",
+    "quote": "a quotation not word for word",
+    "author": "an author named for another's passage",
+}
 
 
 def _ask(args: argparse.Namespace, container: Container) -> int:
@@ -398,6 +404,7 @@ def _ask(args: argparse.Namespace, container: Container) -> int:
         print("\nWeb sources:" if outcome.web else "\nPassages:")
         for number, source in enumerate(outcome.answer.sources, start=1):
             print(f"[{number}] {_label(source)}")
+        _print_checks(outcome)
     else:
         print(_nothing_answers(len(outcome.graded)))
     _print_passages("Left out as not relevant:", outcome.left_out)
@@ -424,6 +431,18 @@ def _print_passages(heading: str, passages: Sequence[RetrievedChunk]) -> None:
         print(f"\n{heading}")
         for passage in passages:
             print(f"- {_label(passage)}")
+
+
+def _print_checks(outcome: Outcome) -> None:
+    if count := len(outcome.draft_problems):
+        problems = "problem" if count == 1 else "problems"
+        print(f"\nThe first answer had {count} {problems} with its passages, ", end="")
+        print("so it was written again.")
+    if outcome.problems:
+        print("\nStill not borne out by its passages:")
+        for problem in outcome.problems:
+            detail = f'"{problem.detail}"' if problem.kind == "quote" else problem.detail
+            print(f"- {_PROBLEMS[problem.kind]}: {detail}")
 
 
 def _nothing_answers(graded: int) -> str:

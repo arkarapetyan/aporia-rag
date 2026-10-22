@@ -1,4 +1,5 @@
-"""Tests for aporia_rag.graph.corrective, the corrective loop (test plan: 25.1-25.7, 26.4-26.8, 27).
+"""Tests for aporia_rag.graph.corrective, the corrective loop (test plan: 25.1-25.7, 26.4-26.8, 27,
+28.7-28.9).
 
 The graph runs the real retriever, grader, generator and rewriter over
 in-memory fakes: the hashing embedder ranks passages by the words they share
@@ -9,6 +10,7 @@ grader keeps and what the rewriter writes, and the recorded conversations
 show every model call the graph made.
 """
 
+import json
 import re
 from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
@@ -87,6 +89,12 @@ class Script:
     query: str = "nasty brutish short life"  # finds HOBBES first
     author: str = "Thomas Hobbes"  # the author the rewriter names: in the corpus
     subject: str = "the good"
+    draft: str = REPLY  # the first answer
+    revised: str = "The revised answer [1]."  # the answer written again, when asked
+    paragraph: str = "Paragraph {n}."  # a survey's paragraph n
+
+    def answer(self, prompt: str) -> str:
+        return self.revised if prompt.startswith("Your answer has these problems") else self.draft
 
     def reply(self, prompt: str) -> str:
         if prompt.startswith("Passage from "):
@@ -95,7 +103,9 @@ class Script:
             return f'{{"relevant": {str(self.keep(chunk)).lower()}}}'
         if prompt.startswith("[1] "):  # a survey: one paragraph per numbered passage
             count = len(re.findall(r"^\[\d+\] ", prompt, re.MULTILINE))
-            paragraphs = ", ".join(f'"Paragraph {n}."' for n in range(1, count + 1))
+            paragraphs = ", ".join(
+                json.dumps(self.paragraph.format(n=n)) for n in range(1, count + 1)
+            )
             return f'{{"paragraphs": [{paragraphs}]}}'
         if "\nAuthors compared: " in prompt:
             return f'{{"subject": "{self.subject}"}}'
@@ -121,7 +131,10 @@ class Setup:
             SURVEY_PROMPT: "survey",
             SUBJECT_PROMPT: "subject",
         }
-        return [kinds.get(c[0].content, "rewrite") for c in self.model.conversations]
+        return [
+            "revision" if len(c) > 2 else kinds.get(c[0].content, "rewrite")
+            for c in self.model.conversations
+        ]
 
     def verdicts(self) -> list[tuple[str, str]]:
         """(passage, question) of every verdict asked for, in order."""
@@ -146,7 +159,7 @@ def _setup(script: Script, web: ScriptedWebSearch | None = None) -> Setup:
             for chunk in (KANT, LAW, HOBBES, MILL)
         ]
     )
-    model = ScriptedChatModel(reply=REPLY, structured_reply=script.reply)
+    model = ScriptedChatModel(reply=script.answer, structured_reply=script.reply)
     retriever = Retriever(embedder, store)
     graph = CorrectiveRAG(
         retriever, RelevanceGrader(model), Generator(model), QueryRewriter(model), web
@@ -431,3 +444,64 @@ def test_a_survey_grades_every_authors_passage() -> None:  # 27.3
     assert setup.calls() == ["verdict"] * 3 + ["survey"]
     assert len(outcome.relevant) == 3
     assert outcome.skipped == ()
+
+
+def test_an_answer_without_problems_is_not_revised() -> None:  # 28.7
+    setup = _setup(Script(keep=_only(KANT)))
+
+    outcome = setup.answer(GOOD_WILL)
+
+    assert setup.calls() == ["verdict", "answer"]
+    assert outcome.draft_problems == outcome.problems == ()
+
+
+def test_an_answer_with_problems_is_written_once_more_with_them_listed() -> None:  # 28.7
+    setup = _setup(Script(keep=_only(KANT), draft="A good will alone is good [2]."))
+
+    outcome = setup.answer(GOOD_WILL)  # one passage: KANT
+
+    assert setup.calls() == ["verdict", "answer", "revision"]
+    assert [problem.kind for problem in outcome.draft_problems] == ["citation"]
+    request = setup.model.conversations[-1][-1].content
+    assert outcome.draft_problems[0].note in request
+    assert outcome.answer is not None
+    assert outcome.answer.text == "The revised answer [1]."
+    assert outcome.problems == ()  # the revised answer passes
+
+
+def test_an_answer_is_revised_once_however_it_comes_back() -> None:  # 28.7
+    still = "Hobbes calls it good [1]."  # names Hobbes for Kant's passage, again
+    setup = _setup(Script(keep=_only(KANT), draft=still, revised=still))
+
+    outcome = setup.answer(GOOD_WILL)
+
+    assert setup.calls() == ["verdict", "answer", "revision"]
+    assert [problem.kind for problem in outcome.problems] == ["author"]
+    assert outcome.problems == outcome.draft_problems
+
+
+def test_a_survey_is_not_checked() -> None:  # 28.8
+    # A survey's paragraphs cite no numbers: a quotation checked would be "not in a passage".
+    setup = _setup(Script(keep=_only(KANT), paragraph='Kant: "words no passage has" {n}.'))
+
+    outcome = setup.answer(GOOD_WILL, Scope(survey=AUTHORS))
+
+    assert "revision" not in setup.calls()
+    assert outcome.draft_problems == ()
+
+
+def test_the_revision_is_timed_as_a_stage_of_its_own(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:  # 28.9
+    # retrieve, grade, generate, revise: a start and an end each
+    _clock(monkeypatch, 0.0, 0.5, 0.5, 2.0, 2.0, 6.0, 6.0, 9.5)
+    setup = _setup(Script(keep=_only(KANT), draft="An answer [7]."))
+
+    outcome = setup.answer(GOOD_WILL)
+
+    assert outcome.seconds == {
+        "retrieval": 0.5,
+        "grading": 1.5,
+        "generation": 4.0,
+        "revision": 3.5,
+    }

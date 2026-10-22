@@ -142,11 +142,11 @@ class RetrievedChunk(_ValueObject):
 class ChatMessage(_ValueObject):
     """One message of a conversation with a chat model.
 
-    The roles are the ones the application sends; "assistant" arrives with
-    the first caller that sends a conversation's earlier replies back.
+    The roles are the ones the application sends; "assistant" is the model's
+    own earlier reply, sent back when it is asked to revise an answer.
     """
 
-    role: Literal["system", "user"]
+    role: Literal["system", "user", "assistant"]
     content: str = Field(min_length=1)
 
 

@@ -125,13 +125,13 @@ class TestEmbeddingSpace:
 
 
 class TestChatMessage:
-    @pytest.mark.parametrize("role", ["system", "user"])
-    def test_roles_are_system_and_user(self, role: str) -> None:  # 1.18
+    @pytest.mark.parametrize("role", ["system", "user", "assistant"])
+    def test_roles_are_system_user_and_assistant(self, role: str) -> None:  # 1.18
         assert ChatMessage.model_validate({"role": role, "content": "Hello."}).role == role
 
     @pytest.mark.parametrize(
         "fields",
-        [{"role": "assistant", "content": "Hello."}, {"role": "user", "content": ""}],
+        [{"role": "tool", "content": "Hello."}, {"role": "user", "content": ""}],
         ids=["unknown-role", "empty-content"],
     )
     def test_rejects_other_roles_and_empty_content(self, fields: dict[str, str]) -> None:  # 1.18
