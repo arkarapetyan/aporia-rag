@@ -37,14 +37,16 @@
       </div>
     </main>
 
-    <aside id="apparatus" class="apparatus" aria-labelledby="apparatus-title" hidden>
-      <div class="panel-head">
-        <h2 id="apparatus-title" class="panel-title">Passages</h2>
-        <button id="close-panel" class="close-panel" type="button" aria-label="Close the passages"
-          title="Close (Esc)">&times;</button>
+    <aside id="apparatus" class="apparatus" aria-labelledby="apparatus-title" inert>
+      <div class="apparatus-inner">
+        <div class="panel-head">
+          <h2 id="apparatus-title" class="panel-title">Passages</h2>
+          <button id="close-panel" class="close-panel" type="button" aria-label="Close the passages"
+            title="Close (Esc)">&times;</button>
+        </div>
+        <p id="apparatus-for" class="panel-for"></p>
+        <div id="apparatus-body"></div>
       </div>
-      <p id="apparatus-for" class="panel-for"></p>
-      <div id="apparatus-body"></div>
     </aside>
 
     <form id="ask" class="composer" autocomplete="off">

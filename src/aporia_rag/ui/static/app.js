@@ -28,6 +28,8 @@ const STAGES = [
 ];
 const SVG = "http://www.w3.org/2000/svg";
 const WIDE = window.matchMedia("(min-width: 1000px)");
+const REDUCED = window.matchMedia("(prefers-reduced-motion: reduce)");
+const EASE = "cubic-bezier(0.2, 0.7, 0.2, 1)"; // as --ease in style.css
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const form = $("#ask");
@@ -108,12 +110,70 @@ function waitAt(run, id) {
   if (id) run.map.querySelector(`[data-station="${id}"]`)?.classList.add("waiting");
 }
 
+const lengthOf = (points) =>
+  points.slice(1).reduce((sum, [x, y], i) => sum + Math.hypot(x - points[i][0], y - points[i][1]), 0);
+
+// The route taken so far; its newest stretch draws on from the last station to this one.
 function drawTaken(run) {
   const points = run.path.map((id) => {
     const i = STATIONS.findIndex((station) => station.id === id);
-    return `${stationX(i)},${stationY(STATIONS[i])}`;
+    return [stationX(i), stationY(STATIONS[i])];
   });
-  $(".taken", run.map).setAttribute("points", points.join(" "));
+  const line = $(".taken", run.map);
+  const before = Number(line.dataset.length ?? 0);
+  const after = lengthOf(points);
+  line.setAttribute("points", points.map((point) => point.join(",")).join(" "));
+  line.dataset.length = String(after);
+  line.style.strokeDasharray = `${after}px ${after}px`;
+  if (REDUCED.matches || after === before) return;
+  line.animate(
+    { strokeDashoffset: [`${after - before}px`, "0px"] },
+    { duration: 450, easing: EASE }
+  );
+}
+
+// -- Motion ----------------------------------------------------------------
+
+const slides = new WeakMap(); // element -> its running height animation
+
+// Slides an element's height to the state that apply(open) sets. While it slides shut it
+// keeps its open content, clipped, and takes the closed state at the end. Resolves then.
+async function slide(element, apply, open) {
+  const from = element.getBoundingClientRect().height;
+  slides.get(element)?.cancel();
+  element.classList.remove("closing");
+  element.style.overflow = "";
+  apply(open);
+  const to = element.getBoundingClientRect().height;
+  if (REDUCED.matches || from === to) return;
+  apply(true);
+  element.classList.toggle("closing", !open);
+  element.style.overflow = "hidden";
+  const animation = element.animate(
+    { height: [`${from}px`, `${to}px`] },
+    { duration: 300, easing: EASE }
+  );
+  slides.set(element, animation);
+  try {
+    await animation.finished;
+  } catch {
+    return; // cancelled: a newer slide took over
+  }
+  apply(open);
+  element.classList.remove("closing");
+  element.style.overflow = "";
+  slides.delete(element);
+}
+
+function setOpen(details, open) {
+  return slide(details, (state) => (details.open = state), open);
+}
+
+// Restarts a class's animation on an element.
+function replay(element, name) {
+  element.classList.remove(name);
+  void element.offsetWidth;
+  element.classList.add(name);
 }
 
 // -- Following a run -------------------------------------------------------
@@ -168,9 +228,8 @@ function stopRun(run, summary) {
   clearInterval(run.timer);
   $(".working", run.steps)?.remove();
   waitAt(run, null);
-  const box = $(".steps-box", run.element);
   $(".steps-summary", run.element).textContent = summary;
-  box.open = false;
+  setOpen($(".steps-box", run.element), false);
   submit.disabled = false;
   submit.textContent = "Ask";
   document.title = "AporiaRAG";
@@ -311,14 +370,17 @@ function passagesFor(outcome, exchange, where) {
     } else {
       citation.textContent = source.citation;
     }
-    $("blockquote", item).textContent = source.text.replace(/\s+/g, " ").trim();
+    const quote = $("blockquote", item);
+    quote.textContent = source.text.replace(/\s+/g, " ").trim();
     if (source.text.length > 480) {
       const toggle = document.createElement("button");
       toggle.type = "button";
       toggle.className = "toggle";
       toggle.textContent = "Show the whole passage";
+      let open = false;
       toggle.addEventListener("click", () => {
-        const open = item.classList.toggle("open");
+        open = !open;
+        slide(quote, (state) => item.classList.toggle("open", state), open);
         toggle.textContent = open ? "Show less" : "Show the whole passage";
       });
       item.append(toggle);
@@ -366,18 +428,23 @@ function syncButtons() {
   });
 }
 
+// The panel slides open and shut (style.css); while shut it keeps its last passages, so
+// that they slide out with it, but cannot be reached.
 function openPanel(index) {
-  showInPanel(index);
+  if (panelFor !== index) {
+    showInPanel(index);
+    if (panelFor !== null) replay($(".apparatus-inner"), "swap"); // from another answer's
+  }
   panelFor = index;
-  $("#apparatus").hidden = false;
   $(".app").classList.add("with-panel");
+  $("#apparatus").inert = false;
   syncButtons();
 }
 
 function closePanel() {
   panelFor = null;
   $(".app").classList.remove("with-panel");
-  $("#apparatus").hidden = true;
+  $("#apparatus").inert = true;
   syncButtons();
 }
 
@@ -571,15 +638,28 @@ document.addEventListener("click", (event) => {
   if (WIDE.matches) {
     openPanel(exchange);
     target = document.getElementById(`panel-${exchange}-${cite.dataset.source}`);
+    // Only down the panel: while the panel slides open, the passage is still out of view
+    // to the side, and scrollIntoView would scroll the panel sideways.
+    const panel = $("#apparatus");
+    const top = target.getBoundingClientRect().top - panel.getBoundingClientRect().top;
+    panel.scrollTo({ top: panel.scrollTop + top - 16, behavior: REDUCED.matches ? "auto" : "smooth" });
   } else {
-    const box = $(".inline-passages", exchanges[exchange].element);
-    box.open = true;
+    // Once the passages have slid open, the page is long enough to scroll to this one.
     target = document.getElementById(`inline-${exchange}-${cite.dataset.source}`);
+    setOpen($(".inline-passages", exchanges[exchange].element), true).then(() =>
+      target.scrollIntoView({ behavior: REDUCED.matches ? "auto" : "smooth", block: "start" })
+    );
   }
-  target?.scrollIntoView({ behavior: "smooth", block: "nearest" });
-  target?.classList.remove("flash");
-  void target?.offsetWidth; // restart the animation
-  target?.classList.add("flash");
+  replay(target, "flash");
+});
+
+// Every disclosure slides open and shut.
+document.addEventListener("click", (event) => {
+  const summary = event.target.closest("summary");
+  if (!summary) return;
+  event.preventDefault();
+  const details = summary.parentElement;
+  setOpen(details, details.classList.contains("closing") || !details.open);
 });
 
 document.querySelectorAll(".example").forEach((button) =>

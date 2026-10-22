@@ -26,6 +26,10 @@
   --step-3: 1.953rem;
 
   --column: 48rem; /* the conversation's measure */
+  --panel-width: clamp(22rem, 36vw, 30rem);
+
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1); /* fast out, slow in */
+  --slide: 0.32s var(--ease);
   color-scheme: light dark;
 }
 
@@ -71,6 +75,52 @@ body {
 :focus-visible {
   outline: 2px solid var(--lapis);
   outline-offset: 3px;
+}
+
+/* -- Motion: every control eases between its states ------------------------ */
+
+a,
+button,
+input,
+select,
+summary,
+textarea {
+  transition: color 0.2s ease, background-color 0.2s ease, border-color 0.2s ease,
+    box-shadow 0.2s ease, text-decoration-color 0.2s ease, transform 0.12s ease;
+}
+
+/* Disclosures (the steps, the passages, the lists of other passages) open and close
+   with a slide (app.js), behind a chevron that turns. */
+summary {
+  list-style: none;
+  cursor: pointer;
+}
+
+summary::-webkit-details-marker {
+  display: none;
+}
+
+summary::before {
+  content: "";
+  display: inline-block;
+  width: 0.42em;
+  height: 0.42em;
+  margin: 0 0.6em 0.12em 0.1em;
+  border-right: 1.6px solid currentColor;
+  border-bottom: 1.6px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform 0.25s var(--ease);
+}
+
+details[open]:not(.closing) > summary::before {
+  transform: rotate(45deg);
+}
+
+@keyframes arrive {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
 }
 
 .visually-hidden {
@@ -137,19 +187,30 @@ html {
 }
 
 @media (min-width: 1000px) {
+  /* The panel's column is always there, 0 wide while closed, and slides open. */
+  .app {
+    grid-template-columns: minmax(0, 1fr) 0px;
+    transition: grid-template-columns var(--slide);
+  }
+
   .app.with-panel {
-    grid-template-columns: minmax(0, 1fr) minmax(22rem, 30rem);
+    grid-template-columns: minmax(0, 1fr) var(--panel-width);
   }
 
   .bar {
     grid-column: 1 / -1;
   }
 
+  .thread,
+  .composer {
+    grid-column: 1;
+  }
+
   .open-passages {
     display: inline-block;
   }
 
-  .app.with-panel .apparatus {
+  .apparatus {
     position: sticky;
     top: var(--bar-height, 3.2rem);
     display: block;
@@ -157,14 +218,45 @@ html {
     grid-row: 2 / 4;
     align-self: start;
     height: calc(100dvh - var(--bar-height, 3.2rem));
-    overflow-y: auto;
-    padding: 1.5rem 1.75rem 2rem;
-    border-left: 1px solid var(--hairline);
+    overflow: hidden auto;
     background: var(--panel);
+    box-shadow: inset 1px 0 var(--hairline); /* a border would stick out of a 0 column */
+    visibility: hidden;
+    transition: visibility 0s linear 0.32s; /* hidden once it has slid shut */
+  }
+
+  .app.with-panel .apparatus {
+    visibility: visible;
+    transition-delay: 0s;
+  }
+
+  /* As wide as the open panel, so its text does not reflow while the column slides. */
+  .apparatus-inner {
+    width: var(--panel-width);
+    padding: 1.5rem 1.75rem 2rem;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+  }
+
+  .app.with-panel .apparatus-inner {
+    opacity: 1;
+    transition: opacity 0.3s ease 0.08s;
   }
 
   .inline-passages {
     display: none;
+  }
+}
+
+/* The panel changes to another answer's passages. */
+.apparatus-inner.swap {
+  animation: swap 0.3s var(--ease);
+}
+
+@keyframes swap {
+  from {
+    opacity: 0;
+    transform: translateX(12px);
   }
 }
 
@@ -239,6 +331,15 @@ html {
   flex-direction: column;
   align-items: flex-end;
   margin-left: 15%;
+  transform-origin: right bottom;
+  animation: ask 0.35s var(--ease);
+}
+
+@keyframes ask {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.97);
+  }
 }
 
 .question-text {
@@ -272,6 +373,7 @@ html {
 
 .reply {
   margin-top: 0.8rem;
+  animation: arrive 0.4s var(--ease) 0.1s backwards;
 }
 
 /* The route: main stations on the line, detours below it. */
@@ -308,12 +410,16 @@ html {
   fill: var(--paper);
   stroke: var(--hairline);
   stroke-width: 3;
+  transform-box: fill-box;
+  transform-origin: center;
+  transition: fill 0.25s ease 0.3s, stroke 0.25s ease 0.3s;
 }
 
 .map .station text {
   fill: var(--graphite);
   font-size: 12.5px;
   text-anchor: middle;
+  transition: fill 0.25s ease 0.3s;
 }
 
 .map .station.main text {
@@ -325,6 +431,13 @@ html {
 .map .station.visited circle {
   fill: var(--lapis);
   stroke: var(--lapis);
+  animation: reach 0.45s var(--ease) 0.3s;
+}
+
+@keyframes reach {
+  40% {
+    transform: scale(1.4);
+  }
 }
 
 .map .station.visited text {
@@ -334,6 +447,10 @@ html {
 .map .station.waiting circle {
   stroke: var(--lapis);
   animation: waiting 1.1s ease-in-out infinite;
+}
+
+.map .station.visited.waiting circle {
+  animation: reach 0.45s var(--ease) 0.3s, waiting 1.1s ease-in-out 0.75s infinite;
 }
 
 @keyframes waiting {
@@ -349,8 +466,12 @@ html {
 
 .steps-summary {
   color: var(--graphite);
-  cursor: pointer;
   font-variant-numeric: lining-nums tabular-nums;
+}
+
+.steps-summary:hover,
+.more summary:hover {
+  color: var(--ink);
 }
 
 .steps-box[open] .steps-summary {
@@ -369,6 +490,14 @@ html {
   justify-content: space-between;
   padding: 0.22rem 0;
   border-bottom: 1px dotted var(--hairline);
+  animation: step 0.3s var(--ease);
+}
+
+@keyframes step {
+  from {
+    opacity: 0;
+    transform: translateX(-6px);
+  }
 }
 
 .steps .seconds {
@@ -384,14 +513,7 @@ html {
 
 .reply-body {
   margin-top: 1rem;
-  animation: arrive 0.35s ease-out;
-}
-
-@keyframes arrive {
-  from {
-    opacity: 0;
-    transform: translateY(6px);
-  }
+  animation: arrive 0.4s var(--ease);
 }
 
 .answer-text {
@@ -421,13 +543,15 @@ html {
   font-family: var(--sans);
   font-size: 0.82em;
   font-weight: 500;
-  text-decoration: none;
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  text-underline-offset: 0.15em;
   font-variant-numeric: lining-nums;
 }
 
 .cite:hover,
 .cite:focus-visible {
-  text-decoration: underline;
+  text-decoration-color: currentColor;
 }
 
 .cite-missing {
@@ -474,6 +598,7 @@ html {
   border-left: 3px solid var(--rubric);
   background: var(--rubric-wash);
   font-family: var(--sans);
+  animation: arrive 0.4s var(--ease);
 }
 
 .inline-passages {
@@ -484,7 +609,6 @@ html {
 
 .inline-passages > summary {
   color: var(--lapis);
-  cursor: pointer;
 }
 
 .inline-passages-body {
@@ -508,6 +632,12 @@ html {
 .open-passages[aria-expanded="true"] {
   border-color: var(--lapis);
   background: var(--lapis-wash);
+}
+
+.open-passages:active,
+.submit:active:not(:disabled),
+.example:active {
+  transform: scale(0.97);
 }
 
 .panel-head {
@@ -558,7 +688,7 @@ html {
   position: relative;
   margin: 0 0 1.3rem;
   padding-left: 2.2rem;
-  scroll-margin-top: 1rem;
+  scroll-margin-top: calc(var(--bar-height, 3.2rem) + 1rem); /* clear of the bar */
 }
 
 .source .siglum {
@@ -602,7 +732,14 @@ html {
   background: none;
   color: var(--lapis);
   font: 0.88rem var(--sans);
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  text-underline-offset: 0.15em;
   cursor: pointer;
+}
+
+.source .toggle:hover {
+  text-decoration-color: currentColor;
 }
 
 .source.flash {
@@ -623,7 +760,6 @@ html {
 
 .more summary {
   color: var(--graphite);
-  cursor: pointer;
 }
 
 .passage-list {
@@ -771,14 +907,19 @@ html {
   }
 }
 
+/* Without motion: every state change at once (app.js checks the same query). */
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;
   }
 
-  .map .station.waiting circle,
-  .source.flash,
-  .reply-body {
-    animation: none;
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-delay: 0s !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    transition-delay: 0s !important;
   }
 }
