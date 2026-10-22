@@ -1,8 +1,8 @@
 /* AporiaRAG: manuscript pigments on cool paper. Lapis marks the route taken and every
    link to a passage; verdigris marks what was kept; rubric red is kept for problems.
-   Layout: a conversation in the page's own scroll, with the bar, the question box and
-   the passages of the answer in focus held in place (sticky), so that a full-page
-   screenshot holds the whole conversation. */
+   Layout: numbered questions, each answered on its own, in the page's own scroll, with
+   the bar, the question box and the passages panel held in place (sticky), so that a
+   full-page screenshot holds every question and answer. */
 
 :root {
   --paper: #f1f3f6;
@@ -326,42 +326,71 @@ html {
   border-top: 1px solid var(--hairline);
 }
 
+/* Each question is a heading of its own, not a turn in a chat: it is answered on its own. */
 .question {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  margin-left: 15%;
-  transform-origin: right bottom;
   animation: ask 0.35s var(--ease);
 }
 
 @keyframes ask {
   from {
     opacity: 0;
-    transform: translateY(10px) scale(0.97);
+    transform: translateY(8px);
   }
 }
 
-.question-text {
+.question-label {
   margin: 0;
-  padding: 0.55rem 1rem;
-  border-radius: 14px 14px 4px 14px;
-  background: var(--lapis-wash);
-  font-size: 1.12rem;
-  line-height: 1.45;
+  color: var(--graphite);
+  font-family: var(--sans);
+  font-size: 0.78rem;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-variant-numeric: lining-nums;
+}
+
+.question-text {
+  margin: 0.15rem 0 0;
+  font-size: clamp(var(--step-1), 2.6vw, var(--step-2));
+  font-weight: 500;
+  line-height: 1.3;
   white-space: pre-wrap;
+  text-wrap: balance;
+}
+
+.question-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem 0.8rem;
+  align-items: center;
+  margin-top: 0.45rem;
+  font-family: var(--sans);
+  font-size: var(--step--1);
 }
 
 .question-options {
   display: flex;
   flex-wrap: wrap;
-  justify-content: flex-end;
   gap: 0.3rem;
-  margin: 0.35rem 0 0;
+  margin: 0;
   padding: 0;
   list-style: none;
-  font-family: var(--sans);
-  font-size: var(--step--1);
+}
+
+.ask-again {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--lapis);
+  font: inherit;
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  text-underline-offset: 0.15em;
+  cursor: pointer;
+}
+
+.ask-again:hover {
+  text-decoration-color: currentColor;
 }
 
 .question-options li {
@@ -824,6 +853,25 @@ html {
   font-style: italic;
 }
 
+/* A question put back in the box by "Edit and ask again". */
+.composer-inner.filled #question {
+  animation: filled 0.9s ease-out;
+}
+
+@keyframes filled {
+  from {
+    border-color: var(--lapis);
+    background: var(--lapis-wash);
+  }
+}
+
+.composer-note {
+  margin: 0.4rem 0 0;
+  color: var(--graphite);
+  font-family: var(--sans);
+  font-size: 0.82rem;
+}
+
 .options {
   display: flex;
   flex-wrap: wrap;
@@ -892,10 +940,6 @@ html {
   .tagline,
   .map {
     display: none;
-  }
-
-  .question {
-    margin-left: 8%;
   }
 
   .option select {

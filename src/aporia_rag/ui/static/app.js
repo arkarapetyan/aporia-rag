@@ -1,6 +1,7 @@
-// AporiaRAG's page: a conversation. Each question gets a reply that shows the route it took,
-// step by step as the backend streams them (see ui/app.py), then the answer, whose citations
-// link to the passages in the panel beside the conversation (inside the reply on a narrow screen).
+// AporiaRAG's page: numbered questions, each answered on its own (the page sends no earlier
+// question or answer). Each gets a reply that shows the route it took, step by step as the
+// backend streams them (see ui/app.py), then the answer, whose citations link to the passages
+// in the panel beside the answers (inside the reply on a narrow screen).
 
 "use strict";
 
@@ -532,7 +533,9 @@ function optionLabels(request) {
 function startExchange(request) {
   $("#welcome").hidden = true;
   const element = $("#exchange").content.firstElementChild.cloneNode(true);
+  $(".question-label", element).textContent = `Question ${exchanges.length + 1}`;
   $(".question-text", element).textContent = request.question;
+  $(".ask-again", element).addEventListener("click", () => askAgain(request));
   const options = $(".question-options", element);
   for (const label of optionLabels(request)) {
     const item = document.createElement("li");
@@ -559,6 +562,18 @@ function startExchange(request) {
   run.timer = setInterval(() => tick(run), 250);
   keepInView(true);
   return run;
+}
+
+// Puts a question and its options back in the box, to change them and ask again.
+function askAgain(request) {
+  question.value = request.question;
+  $("#author").value = request.all_authors ? "*" : (request.author ?? "");
+  $("#k").value = request.k;
+  $("#others").checked = request.others;
+  autoGrow();
+  question.focus();
+  question.setSelectionRange(question.value.length, question.value.length);
+  replay($(".composer-inner"), "filled");
 }
 
 function refusal(status, body) {
@@ -685,10 +700,14 @@ question.addEventListener("keydown", (event) => {
 
 form.addEventListener("submit", ask);
 
-window.addEventListener("resize", measureBar);
+window.addEventListener("resize", () => {
+  measureBar();
+  autoGrow();
+});
 
 async function start() {
   measureBar();
+  autoGrow(); // tall enough for the placeholder on a narrow screen
   try {
     const { authors, k } = await (await fetch("/api/authors")).json();
     const select = $("#author");

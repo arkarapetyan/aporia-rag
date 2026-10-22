@@ -74,16 +74,23 @@
             <span>List other authors too</span>
           </label>
         </div>
+        <p class="composer-note">Each question is answered on its own, so name the author or the subject
+          each time.</p>
       </div>
     </form>
   </div>
 
   <template id="exchange">
     <article class="exchange">
-      <div class="question">
-        <p class="question-text"></p>
-        <ul class="question-options"></ul>
-      </div>
+      <header class="question">
+        <p class="question-label"></p>
+        <h2 class="question-text"></h2>
+        <div class="question-meta">
+          <ul class="question-options"></ul>
+          <button type="button" class="ask-again"
+            title="Put this question and its options back in the box, to change them and ask again">Edit and ask again</button>
+        </div>
+      </header>
       <div class="reply">
         <svg class="map" viewBox="0 0 760 128" role="img"
           aria-label="The steps of the corrective loop, lit as they run"></svg>
