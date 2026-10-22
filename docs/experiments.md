@@ -190,6 +190,44 @@ sentence per line: "which sentences do the passages not support?" Rule: kept if 
 of the 6 known errors, flags at most 2 of 9 good answers, and takes at most 6 s. It found 1, flagged
 2, in 2.5 s. The local model does not see what it got wrong in the first place.
 
+## Follow-up questions (2026-10-22)
+
+Each question is answered on its own, so a follow-up ("And Seneca?", "In [1], what is the mean
+relative to?") is searched as written. The usual fix is one model call that rewrites the follow-up
+as a question that stands on its own, from the last exchanges, before the search; the answer is
+still written from the new passages only, so the checks hold. It was measured before anything
+was built, on 23 two-message conversations written before the run: the first message a gold
+question with its saved answer, the second a follow-up (10), a question about the answer's
+passages (5), a new complete question (5) or no question at all (3, "Thanks").
+
+Rule, fixed before the run: build it if the rewritten follow-ups get a gold passage in at least
+12 of 15, at most 1 of the 5 new questions names other authors once rewritten, and the median
+rewrite takes at most 3 s.
+
+| | as typed (today) | rewritten |
+|---|---|---|
+| follow-ups and passage questions given a gold passage (of 15) | 9 | 11 |
+| new questions changed (of 5) | | 2 (1 by the rule's test) |
+| "Thanks" and the like recognised (of 3) | | 3 |
+| median seconds for the rewrite | | 2.0 |
+
+11 of 15 failed the rule. Read one by one, 20 of the 23 rewrites were right ("Does he think..." to
+"Does Kant think...", "In [1]" to the *Nicomachean Ethics*, Book II, Chapter VI). Every error used
+the conversation where the message did not ask for it: a complete question about government was
+emptied, as if it asked nothing (the rule's test, which compared the authors named, could not see
+this); a complete question was given the earlier answer's author; "that" was replaced by a summary
+of the earlier answer, which the search could not match. As typed, the follow-ups went wrong in
+other ways: "And Seneca?" went to the web and was answered about the Seneca people, and "in [2]"
+was answered with "there is no passage 2".
+
+A second version, written but not run, decides first: is the message a question at all, and does
+it need the conversation? Plain code then searches the message as typed when it does not, so a
+complete question can be neither emptied nor given an author, and a follow-up wrongly judged
+complete is searched as today. Aren chose to finish the project with one question, one answer, and
+to come back to this; the rule for the second run (17 of 21 follow-ups, at most 1 of 9 new
+questions changed, 3 s) and its 12 new conversations are kept with the measurement scripts, outside
+the repository.
+
 ## Smaller findings
 
 - **Margin notes.** A scan of the loaded corpus caught 71 margin notes merged into Cicero's paragraphs

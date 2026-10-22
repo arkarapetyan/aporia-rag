@@ -298,19 +298,22 @@ see.
   through a queue, so a step reaches the page when it finishes. A request that cannot be answered
   (an unknown author, an empty index) is refused with 400 before anything runs. One question runs
   at a time: on a laptop the model is the bottleneck.
-- The page reads like a conversation: the question box (with every `ask` option: authors,
-  number of passages, other authors) stays at the bottom, and each question gets a reply right
-  under it. But each question is answered on its own: the page sends no earlier question or
-  answer, so a follow-up such as "And Mill?" is searched as it is written.
+- One question, one answer (Aren, 2026-10-22). The page sends no earlier question or answer, so
+  the page does not look like a chat: each question is a numbered heading with its reply under it,
+  and the note under the question box says to name the author or the subject each time. "Edit and
+  ask again" puts a question and its options back in the box, to change it and ask again. The
+  question box (with every `ask` option: authors, number of passages, other authors) stays at the
+  bottom. Reading follow-ups in the light of the conversation was measured and left for later
+  ([experiments](experiments.md#follow-up-questions-2026-10-22)).
 - The reply draws the route as a line, the main stations (search, grade, write, check) on it and
   the detours (rewrite, search again, web, write again, other authors) below it, lit as the steps
   arrive; then the answer, the checks and the route taken, with the steps and their times folded
   away.
-- The passages open in a panel beside the conversation (inside the reply on a narrow screen),
+- The passages open in a panel beside the answers (inside the reply on a narrow screen),
   from a reply's button or from a citation, which brings its passage forward. The panel stays
   closed until then, and follows the newest answer while open.
 - The page scrolls as a whole, with the bar, the question box and the panel held in place, so a
-  browser's full-size screenshot holds the whole conversation.
+  browser's full-size screenshot holds every question and answer.
 - Every change of state moves: the panel and the folded lists slide, the route draws on from
   station to station. With the system's "reduce motion" setting, everything changes at once.
 
@@ -335,8 +338,9 @@ and network (`make test-integration`) are opt-in and run by hand before a commit
   the corpus (Mill on lying retrieves *On Liberty*, not *Utilitarianism*).
 - **Questions about the details of a work outside the corpus** (Plato's *Lysis*) can end with
   nothing kept: the grader leaves out pages that say the dialogue reaches no conclusion.
-- **No follow-up questions.** Each question is answered on its own; the page looks like a
-  conversation, but a question that leans on the one before it ("Why does he say that?") is
-  searched as written.
+- **No follow-up questions.** Each question is answered on its own, by design for now: a
+  question that leans on the one before it ("Why does he say that?") is searched as written. A
+  first measurement of reading it in context fell just short of its rule
+  ([experiments](experiments.md#follow-up-questions-2026-10-22)).
 - **The model needs 22 GB of RAM;** `qwen3.5:9b` is the setting for 16 GB machines, and the
   measurements here are for the 35B model only.

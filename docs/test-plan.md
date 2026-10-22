@@ -1065,13 +1065,14 @@ steps shown live, as they finish.
   an error). A request that cannot be answered (an unknown author, an empty index) is refused
   before anything runs. One question runs at a time: on a laptop the model is the bottleneck, and
   two at once would each take twice as long.
-- **The page** (`ui/static`), a conversation (Aren, 2026-10-22: the answer right under the
-  question, chat-like): the question box with `ask`'s options at the bottom; for each question, a
-  map of the loop whose nodes light up as the steps arrive, the steps with their times, then the
-  answer with each citation linked to its passage, the checks and the route; the passages, those
-  left out and not graded, and the other authors in a panel beside the conversation, closed until
-  a reply's button or a citation opens it. Each question is answered on its own: the page sends
-  no earlier question or answer.
+- **The page** (`ui/static`), one question and one answer at a time (Aren, 2026-10-22: the
+  answer right under its question; no conversation, for now): the question box with `ask`'s
+  options at the bottom, and a note to name the author or the subject each time; for each
+  question, a numbered heading with "Edit and ask again", a map of the loop whose nodes light up
+  as the steps arrive, the steps with their times, then the answer with each citation linked to
+  its passage, the checks and the route; the passages, those left out and not graded, and the
+  other authors in a panel beside the answers, closed until a reply's button or a citation opens
+  it. The page sends no earlier question or answer.
 - `aporia-rag serve` starts it on this machine (127.0.0.1:8000 by default).
 
 The page's JavaScript has no test runner of its own: it is checked by rendering it against the

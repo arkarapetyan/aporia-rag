@@ -174,8 +174,9 @@ the run ([experiments](docs/experiments.md)).
   errors.
 - Runs are not fully repeatable on Ollama, even at temperature 0.
 - One side of a comparison can be lost when that author's best passage on the subject is elsewhere.
-- No follow-up questions: each question is answered on its own, so "And Mill?" after a question
-  about Kant is searched as written.
+- One question, one answer: each question is answered on its own, so "And Mill?" after a question
+  about Kant is searched as written. Reading follow-ups in context was measured and left for later
+  ([experiments](docs/experiments.md#follow-up-questions-2026-10-22)).
 - Measured with one 35B model on one laptop; the 9B setting is untested.
 
 More in [architecture](docs/architecture.md#known-limitations).
